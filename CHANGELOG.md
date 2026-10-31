@@ -15,6 +15,10 @@ that mention those pieces describe history, not what ships here.
 
 ## [Unreleased]
 
+### Removed
+- Modules unreachable from `src/index.ts` and the tests that only covered them. `tools/list` output is unchanged.
+- Unused npm dependencies: `chromadb`, `chromadb-default-embed`, `chokidar`, `lodash.debounce`, `lru-cache`, `p-queue`, `semver`, `zod-to-json-schema`, `@types/json-schema`. The ChromaDB HTTP health check and `CHROMA_URL` are unchanged.
+
 ## [3.22.2] - 2026-10-30
 
 ### Fixed
