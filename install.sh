@@ -5,12 +5,11 @@
 # Usage: ./install.sh
 # 
 # This script will:
-# 1. Check prerequisites (Node.js, npm, Docker)
+# 1. Check prerequisites (Node.js, npm)
 # 2. Install dependencies
 # 3. Build TypeScript
-# 4. Configure environment
-# 5. Setup ChromaDB (optional)
-# 6. Configure Cursor IDE
+# 4. Configure environment (.env in this directory, mode 600)
+# 5. Configure Cursor IDE (adds the "m7" entry, keeps your other servers)
 # ============================================
 
 set -e
@@ -131,17 +130,6 @@ check_prerequisites() {
         all_ok=false
     fi
     
-    # Check Docker (optional)
-    if command -v docker &> /dev/null; then
-        local docker_version=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-        log_success "Docker v$docker_version"
-        DOCKER_AVAILABLE=true
-    else
-        log_warning "Docker not found (ChromaDB will be skipped)"
-        log_info "Install from: https://docs.docker.com/get-docker/"
-        DOCKER_AVAILABLE=false
-    fi
-    
     if [ "$all_ok" = false ]; then
         echo ""
         log_error "Prerequisites not met. Please install missing dependencies."
@@ -188,6 +176,8 @@ configure_environment() {
         read -p "Overwrite? (y/N): " overwrite
         if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
             log_info "Keeping existing .env"
+            # The file holds API keys: only its owner may read it
+            chmod 600 .env
             return
         fi
     fi
@@ -200,6 +190,8 @@ configure_environment() {
         log_warning ".env.example not found, creating minimal .env"
         touch .env
     fi
+    # The file will hold API keys: only its owner may read it
+    chmod 600 .env
     
     echo ""
     log_info "API Keys Configuration"
@@ -230,57 +222,10 @@ configure_environment() {
     else
         log_warning "ANTHROPIC_API_KEY skipped (required for Claude agents)"
     fi
-}
 
-# ============================================
-# ChromaDB Setup
-# ============================================
-
-setup_chromadb() {
-    log_step "ChromaDB Setup (Semantic Memory)"
-    
-    if [ "$DOCKER_AVAILABLE" = false ]; then
-        log_warning "Docker not available, skipping ChromaDB"
-        log_info "ChromaDB provides semantic search for code memory"
-        log_info "To enable later: docker-compose up -d"
-        return
-    fi
-    
-    echo ""
-    read -p "Setup ChromaDB with Docker? (Y/n): " setup_chroma
-    
-    if [[ "$setup_chroma" =~ ^[Nn]$ ]]; then
-        log_info "ChromaDB skipped"
-        return
-    fi
-    
-    cd "$SCRIPT_DIR"
-    
-    # Check if docker-compose.yml exists
-    if [ ! -f "docker-compose.yml" ]; then
-        log_error "docker-compose.yml not found"
-        return
-    fi
-    
-    log_info "Starting ChromaDB container..."
-    docker-compose up -d chromadb
-    
-    # Wait for health check
-    log_info "Waiting for ChromaDB to be ready..."
-    local max_attempts=30
-    local attempt=0
-    
-    while [ $attempt -lt $max_attempts ]; do
-        if curl -s http://localhost:8000/api/v1/heartbeat > /dev/null 2>&1; then
-            log_success "ChromaDB is running on http://localhost:8000"
-            return
-        fi
-        sleep 1
-        ((attempt++))
-    done
-    
-    log_warning "ChromaDB health check timed out"
-    log_info "Check status: docker-compose logs chromadb"
+    # Keep the mode after the edits above
+    chmod 600 .env
+    log_info "Keys are stored in $SCRIPT_DIR/.env (mode 600). The server reads this file; Cursor's mcp.json gets no keys."
 }
 
 # ============================================
@@ -306,15 +251,6 @@ configure_cursor() {
     # Create .cursor directory if needed
     mkdir -p "$cursor_config_dir"
     
-    # Get API keys from .env if available
-    local openai_key=""
-    local anthropic_key=""
-    
-    if [ -f "$SCRIPT_DIR/.env" ]; then
-        openai_key=$(grep "^OPENAI_API_KEY=" "$SCRIPT_DIR/.env" | cut -d= -f2)
-        anthropic_key=$(grep "^ANTHROPIC_API_KEY=" "$SCRIPT_DIR/.env" | cut -d= -f2)
-    fi
-    
     # Check if mcp.json exists
     if [ -f "$mcp_config" ]; then
         log_warning "mcp.json already exists"
@@ -333,26 +269,16 @@ configure_cursor() {
         log_info "Backed up existing mcp.json"
     fi
     
-    # Generate new mcp.json with M7
-    cat > "$mcp_config" << EOF
-{
-  "mcpServers": {
-    "m7": {
-      "command": "node",
-      "args": ["$m7_path/dist/index.js"],
-      "cwd": "$m7_path",
-      "env": {
-        "OPENAI_API_KEY": "$openai_key",
-        "ANTHROPIC_API_KEY": "$anthropic_key",
-        "CHROMA_URL": "http://localhost:8000"
-      }
-    }
-  }
-}
-EOF
-    
-    log_success "Cursor configuration updated"
-    log_info "Config location: $mcp_config"
+    # Add the "m7" entry and keep every other server in the file. No API keys
+    # are written: the server reads the .env in this directory. If the file is
+    # not valid JSON the script leaves it alone and says why.
+    if node "$SCRIPT_DIR/scripts/merge-cursor-config.mjs" "$mcp_config" "$m7_path"; then
+        log_success "Cursor configuration updated"
+        log_info "Config location: $mcp_config"
+    else
+        log_error "Cursor configuration was not changed (see the message above)"
+        log_info "Manual setup: add M7 to $mcp_config"
+    fi
 }
 
 # ============================================
@@ -395,9 +321,6 @@ print_success() {
     echo ""
     echo -e "${BOLD}📚 Useful Commands:${NC}"
     echo ""
-    echo "   • Start ChromaDB:    docker-compose up -d"
-    echo "   • Stop ChromaDB:     docker-compose down"
-    echo "   • View logs:         docker-compose logs -f"
     echo "   • Rebuild M7:        npm run build"
     echo ""
     echo -e "${BOLD}📖 Documentation:${NC}"
@@ -420,7 +343,6 @@ main() {
     install_dependencies
     build_typescript
     configure_environment
-    setup_chromadb
     configure_cursor
     run_tests
     print_success

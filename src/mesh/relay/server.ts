@@ -6,14 +6,22 @@
  * Zero external dependencies — uses Node.js builtins only.
  * 
  * Deploy: node server.js
- * Config: M7_RELAY_PORT (default 9700), M7_RELAY_SECRET, M7_RELAY_DATA_DIR
+ * Config: M7_RELAY_PORT (default 9700), M7_RELAY_HOST (default 127.0.0.1),
+ *         M7_RELAY_SECRET, M7_RELAY_DATA_DIR
+ *
+ * The relay listens on 127.0.0.1 unless M7_RELAY_HOST says otherwise. A relay
+ * that other machines must reach needs M7_RELAY_HOST=0.0.0.0 (or one interface
+ * address), and TLS in front of it: the bearer token travels in plain text over
+ * plain HTTP. See SECURITY.md.
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { createHash, timingSafeEqual } from 'crypto';
 import { RelayStore } from './store.js';
 import { join } from 'path';
 
 const PORT = parseInt(process.env.M7_RELAY_PORT || '9700', 10);
+const HOST = process.env.M7_RELAY_HOST || '127.0.0.1';
 const SECRET = process.env.M7_RELAY_SECRET || '';
 const DATA_DIR = process.env.M7_RELAY_DATA_DIR || join(process.cwd(), 'data');
 
@@ -50,9 +58,22 @@ async function readBody(req: IncomingMessage): Promise<any> {
   });
 }
 
+function sha256(text: string): Buffer {
+  return createHash('sha256').update(text, 'utf8').digest();
+}
+
+/**
+ * True only when `presented` is exactly `expected`. Both sides are hashed first,
+ * so the two buffers always have the same length (timingSafeEqual throws on a
+ * length mismatch) and the compare time does not depend on where they differ.
+ */
+function exactMatch(presented: string, expected: string): boolean {
+  return timingSafeEqual(sha256(presented), sha256(expected));
+}
+
 function auth(req: IncomingMessage): boolean {
   const header = req.headers.authorization || '';
-  return header === `Bearer ${SECRET}`;
+  return exactMatch(header, `Bearer ${SECRET}`);
 }
 
 function parseUrl(url: string): { path: string; params: URLSearchParams } {
@@ -239,8 +260,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
 const server = createServer(handleRequest);
 
-server.listen(PORT, () => {
-  console.log(`[M7 Mesh Relay] Running on port ${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`[M7 Mesh Relay] Running on ${HOST}:${PORT}`);
   console.log(`[M7 Mesh Relay] Data dir: ${DATA_DIR}`);
   console.log(`[M7 Mesh Relay] Auth: Bearer token required`);
 });
