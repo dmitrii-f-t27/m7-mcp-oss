@@ -62,7 +62,7 @@ are drained on exit by the shutdown flush.
 |---|---|---|
 | `OPENAI_API_KEY` | yes | checked at startup |
 | `ANTHROPIC_API_KEY` | yes | checked at startup |
-| `M7_PROJECT_PATH` | recommended | target project; otherwise resolved from cwd / Cursor |
+| `M7_PROJECT_PATH` | recommended | target project; wins over the Cursor activity guess; otherwise resolved from MCP roots / Cursor env / cwd |
 | `CHROMA_URL` | no | default `http://localhost:8000` |
 | `M7_TELEMETRY_ENDPOINT` | no | enables telemetry upload to your own collector |
 | `M7_DEBUG=true` | no | verbose logging to stderr |

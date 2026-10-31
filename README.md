@@ -121,9 +121,13 @@ Then add the server to your MCP client. For Cursor, `~/.cursor/mcp.json`:
 }
 ```
 
-`install.sh` does the same interactively. `M7_PROJECT_PATH` is optional: the
-server tries MCP roots and a few environment hints first, but setting it
-explicitly avoids surprises when several workspaces are open.
+`install.sh` does the same interactively. `M7_PROJECT_PATH` is optional. The
+server picks the project in this order: the `project_path` of a tool call, MCP
+roots, `CURSOR_WORKSPACE` / `WORKSPACE_FOLDER_PATHS`, `AGENT_TRANSCRIPTS`,
+`M7_PROJECT_PATH`, a guess from recent Cursor activity, and last the working
+directory. The activity guess is used only when `M7_PROJECT_PATH` is unset or
+invalid and the working directory is your home directory or the M7 install
+directory. Set `M7_PROJECT_PATH` explicitly when several workspaces are open.
 
 Run `mcp_m7_init_project` once inside a project. It creates the memory bank,
 project knowledge files and a `.cursorrules` with the methodology summary.
@@ -147,7 +151,7 @@ in `src/core/config/featureFlags.ts`. Useful environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `M7_PROJECT_PATH` | target project directory |
+| `M7_PROJECT_PATH` | target project directory; it wins over the guess from Cursor activity |
 | `M7_DEBUG=true` | verbose logs on stderr |
 | `M7_ALLOW_REMOTE_CLASSIFICATION=true` | send the task text to OpenAI (`gpt-4o-mini`) to classify it, once per `mcp_m7_analyze_task` call; unset or any other value means the task is classified locally and the text is not sent |
 | `M7_TELEMETRY_ENDPOINT` | enable telemetry upload to a collector you run; unset means nothing leaves the machine |
@@ -213,7 +217,9 @@ temporary project, and `npm test` fails if a run leaves files in the repository.
 - Some modules keep timers alive after the work is done; the test runner uses
   `--test-force-exit` for that reason.
 - Comments and some docs are a mix of English and Russian.
-- Project-path resolution scans `~/.cursor/projects` as one of its fallbacks.
+- Project-path resolution can guess the project from recent activity in
+  `~/.cursor/projects`, but only when `M7_PROJECT_PATH` is unset or invalid and
+  the working directory is your home directory or the M7 install directory.
   If you are not using Cursor, set `M7_PROJECT_PATH`.
 
 ## Contributing

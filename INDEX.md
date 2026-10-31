@@ -52,7 +52,7 @@ m7-mcp-oss/
 | Task analysis | `src/core/tools/analyzeTask.ts` | routing + session creation + scope alerts |
 | Hive | `src/hive/` | needs `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` |
 | Feature flags | `src/core/config/featureFlags.ts` | defaults + `config/m7-config.yaml` overrides |
-| Project path | `src/core/utils/projectPath.ts` | `getProjectPath()`: explicit > MCP roots > `CURSOR_WORKSPACE` > … > `M7_PROJECT_PATH` > cwd |
+| Project path | `src/core/utils/projectPath.ts` | `getProjectPath()`: explicit > MCP roots > `CURSOR_WORKSPACE` > `AGENT_TRANSCRIPTS` > `M7_PROJECT_PATH` > Cursor activity scan (only if cwd is home or the install directory) > cwd |
 | Cross-session learning | `src/cross-session/` | one instance per project, `<project>/.m7/cross-session/` |
 | Shutdown flush | `src/core/shutdown/flushOnExit.ts` | debounced stores register a contributor |
 | Package version | `src/core/utils/packageVersion.ts` | `PACKAGE_VERSION` for `serverInfo`, `m7://status`, telemetry |

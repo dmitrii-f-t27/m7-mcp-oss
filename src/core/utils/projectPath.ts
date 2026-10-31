@@ -8,10 +8,17 @@
  * Priority:
  * 1. Explicit project_path on tool call (applyProjectPath — sticky for session)
  * 2. MCP Roots (lazy retry on tool calls, not only oninitialized)
- * 3. CURSOR_WORKSPACE / WORKSPACE_FOLDER_PATHS / AGENT_TRANSCRIPTS env
- * 4. Cursor projects dir scan (~/.cursor/projects/<slug> by activity mtime)
- * 5. M7_PROJECT_PATH (only after Roots retries exhausted)
- * 6. process.cwd() (warn if M7 installation dir or bare home)
+ * 3. CURSOR_WORKSPACE / WORKSPACE_FOLDER_PATHS env
+ * 4. AGENT_TRANSCRIPTS env
+ * 5. M7_PROJECT_PATH (the synchronous getProjectPath() uses it only after the
+ *    Roots step is finished; ensureProjectPathResolved() uses it at once)
+ * 6. Cursor projects dir scan (~/.cursor/projects/<slug> by activity mtime),
+ *    only when M7_PROJECT_PATH is unset or invalid and cwd is the bare home
+ *    directory or the M7 installation directory
+ * 7. process.cwd() (warn if M7 installation dir or bare home)
+ *
+ * Steps 3-7 are decided by selectProjectSource(), a pure function of a few
+ * facts. The scan guesses from file times, so it never beats a path the user set.
  */
 
 import { join, resolve, isAbsolute } from 'path';
@@ -211,7 +218,7 @@ function pickBestWorkspaceCandidate(candidates: string[]): string | null {
   return null;
 }
 
-function resolveCursorWorkspaceFromEnv(): string | null {
+function resolveWorkspaceFromCursorEnvVars(): string | null {
   const cursorWorkspace = process.env.CURSOR_WORKSPACE;
   if (cursorWorkspace && existsSync(cursorWorkspace)) {
     return cursorWorkspace;
@@ -231,53 +238,103 @@ function resolveCursorWorkspaceFromEnv(): string | null {
     }
   }
 
-  const fromAgentTranscripts = resolveWorkspaceFromAgentTranscriptsEnv();
-  if (fromAgentTranscripts) {
-    return fromAgentTranscripts;
-  }
-
-  const fromProjectsDir = resolveWorkspaceFromCursorProjectsDir();
-  if (fromProjectsDir) {
-    return fromProjectsDir;
-  }
-
   return null;
 }
 
-function resolveEnvFallbackPath(allowCache: boolean): string {
-  const cursorPath = resolveCursorWorkspaceFromEnv();
-  if (cursorPath) {
-    if (allowCache) {
-      logger.info(`[M7 ProjectPath] Using Cursor workspace env: ${cursorPath}`);
-      cachedProjectPath = cursorPath;
-    }
-    return cursorPath;
-  }
+/** CURSOR_WORKSPACE / WORKSPACE_FOLDER_PATHS, then AGENT_TRANSCRIPTS. Never the activity scan. */
+function resolveCursorWorkspaceFromEnv(): string | null {
+  return resolveWorkspaceFromCursorEnvVars() ?? resolveWorkspaceFromAgentTranscriptsEnv();
+}
 
-  if (rootsResolutionComplete) {
-    const m7ProjectPath = process.env.M7_PROJECT_PATH;
-    if (m7ProjectPath && existsSync(m7ProjectPath)) {
-      if (allowCache) {
-        logger.info(`[M7 ProjectPath] Using M7_PROJECT_PATH: ${m7ProjectPath}`);
-        cachedProjectPath = m7ProjectPath;
-      }
-      return m7ProjectPath;
-    }
-  }
+/** M7_PROJECT_PATH when it names a directory that exists, else null. */
+function getValidM7ProjectPath(): string | null {
+  const m7ProjectPath = process.env.M7_PROJECT_PATH;
+  return m7ProjectPath && existsSync(m7ProjectPath) ? m7ProjectPath : null;
+}
 
+export type EnvProjectSource =
+  | 'CURSOR env'
+  | 'AGENT_TRANSCRIPTS'
+  | 'M7_PROJECT_PATH'
+  | 'Cursor projects dir'
+  | 'process.cwd()';
+
+export interface EnvProjectSourceFacts {
+  /** CURSOR_WORKSPACE or WORKSPACE_FOLDER_PATHS names a usable directory. */
+  hasCursorEnv: boolean;
+  /** AGENT_TRANSCRIPTS decodes to a workspace. */
+  hasAgentTranscripts: boolean;
+  /** M7_PROJECT_PATH is set and the directory exists. */
+  hasValidM7Path: boolean;
+  /** The MCP Roots step is finished. */
+  rootsComplete: boolean;
+  /** cwd is the bare home directory or the M7 installation directory. */
+  cwdAllowsScan: boolean;
+}
+
+/**
+ * Pure: which source answers after explicit project_path and MCP Roots.
+ * 'Cursor projects dir' means "try the scan"; if the scan finds nothing the caller
+ * falls back to process.cwd(). 'process.cwd()' is also the answer while
+ * M7_PROJECT_PATH waits for the Roots step: the scan must not fill that gap.
+ */
+export function selectProjectSource(facts: EnvProjectSourceFacts): EnvProjectSource {
+  if (facts.hasCursorEnv) return 'CURSOR env';
+  if (facts.hasAgentTranscripts) return 'AGENT_TRANSCRIPTS';
+  if (facts.hasValidM7Path) return facts.rootsComplete ? 'M7_PROJECT_PATH' : 'process.cwd()';
+  if (facts.cwdAllowsScan) return 'Cursor projects dir';
+  return 'process.cwd()';
+}
+
+function pickCwdCandidate(): string {
   const cwd = process.cwd();
-  const candidates = pickBestWorkspaceCandidate([cwd]) ?? cwd;
+  return pickBestWorkspaceCandidate([cwd]) ?? cwd;
+}
+
+/** Gathers the facts, applies selectProjectSource() and reads the chosen source. path is null for cwd. */
+function resolveEnvSource(): { source: EnvProjectSource; path: string | null } {
+  const cursorEnvPath = resolveWorkspaceFromCursorEnvVars();
+  const transcriptsPath = cursorEnvPath ? null : resolveWorkspaceFromAgentTranscriptsEnv();
+  const m7Path = getValidM7ProjectPath();
+  const cwdCandidate = pickCwdCandidate();
+
+  const source = selectProjectSource({
+    hasCursorEnv: cursorEnvPath !== null,
+    hasAgentTranscripts: transcriptsPath !== null,
+    hasValidM7Path: m7Path !== null,
+    rootsComplete: rootsResolutionComplete,
+    cwdAllowsScan: isUnsafeFallbackPath(cwdCandidate) || isM7InstallationDirectory(cwdCandidate)
+  });
+
+  switch (source) {
+    case 'CURSOR env':
+      return { source, path: cursorEnvPath };
+    case 'AGENT_TRANSCRIPTS':
+      return { source, path: transcriptsPath };
+    case 'M7_PROJECT_PATH':
+      return { source, path: m7Path };
+    case 'Cursor projects dir': {
+      const scanned = resolveWorkspaceFromCursorProjectsDir();
+      return scanned ? { source, path: scanned } : { source: 'process.cwd()', path: null };
+    }
+    default:
+      return { source, path: null };
+  }
+}
+
+function resolveEnvFallbackPath(allowCache: boolean): string {
+  const fromEnv = resolveEnvSource();
+  if (fromEnv.path) {
+    if (allowCache) {
+      logger.info(`[M7 ProjectPath] Using ${fromEnv.source}: ${fromEnv.path}`);
+      cachedProjectPath = fromEnv.path;
+    }
+    return fromEnv.path;
+  }
+
+  const candidates = pickCwdCandidate();
 
   if (isUnsafeFallbackPath(candidates)) {
-    const fromProjectsDir = resolveWorkspaceFromCursorProjectsDir();
-    if (fromProjectsDir) {
-      if (allowCache) {
-        cachedProjectPath = fromProjectsDir;
-      }
-      logger.info(`[M7 ProjectPath] Using Cursor projects dir instead of home: ${fromProjectsDir}`);
-      return fromProjectsDir;
-    }
-
     if (rootsResolutionComplete) {
       logger.warn(`[M7 ProjectPath] Refusing bare home directory fallback (${candidates}). Pass project_path or open a workspace folder.`);
     } else {
@@ -424,6 +481,14 @@ export async function ensureProjectPathResolved(server?: unknown): Promise<strin
     return cursorPath;
   }
 
+  // M7_PROJECT_PATH is a path the user set: use it now that Roots gave no answer.
+  const m7Path = getValidM7ProjectPath();
+  if (m7Path) {
+    const applied = applyResolvedWorkspace(m7Path, false);
+    markRootsResolutionComplete();
+    return applied;
+  }
+
   if (rootsAttemptCount >= ROOTS_MAX_ATTEMPTS || rootsResolutionComplete) {
     if (!rootsResolutionComplete) {
       markRootsResolutionComplete();
@@ -517,20 +582,15 @@ export function getProjectPathDiagnostics(): {
   } else if (cachedProjectPath) {
     currentPath = cachedProjectPath;
     source = 'cached';
-  } else if (resolveCursorWorkspaceFromEnv()) {
-    currentPath = resolveCursorWorkspaceFromEnv()!;
-    const fromProjectsDir = resolveWorkspaceFromCursorProjectsDir();
-    source = fromProjectsDir && currentPath === fromProjectsDir
-      ? 'Cursor projects dir'
-      : process.env.AGENT_TRANSCRIPTS
-        ? 'AGENT_TRANSCRIPTS'
-        : 'CURSOR env';
-  } else if (rootsResolutionComplete && m7ProjectPath && existsSync(m7ProjectPath)) {
-    currentPath = m7ProjectPath;
-    source = 'M7_PROJECT_PATH';
   } else {
-    currentPath = cwd;
-    source = rootsResolutionComplete ? 'process.cwd()' : 'awaiting MCP Roots';
+    const fromEnv = resolveEnvSource();
+    if (fromEnv.path) {
+      currentPath = fromEnv.path;
+      source = fromEnv.source;
+    } else {
+      currentPath = cwd;
+      source = rootsResolutionComplete ? 'process.cwd()' : 'awaiting MCP Roots';
+    }
   }
 
   return {
