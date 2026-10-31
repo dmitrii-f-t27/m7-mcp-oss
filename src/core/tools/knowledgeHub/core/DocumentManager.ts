@@ -19,6 +19,7 @@ import {
 } from '../utils/fileUtils.js';
 import { getHubPath, hubDocumentPath } from '../utils/configUtils.js';
 import { resolveContainedEntry } from '../../../security/pathGuard.js';
+import { isSymlinkNoFollow } from '../../../utils/safeWrite.js';
 
 export class DocumentManager {
   constructor(private projectPath: string) {}
@@ -209,18 +210,20 @@ export class DocumentManager {
   // ===== Private Helper Methods =====
   
   /**
-   * The real path of a document (SEC-19). The document must lie inside the hub, and the
-   * folder it sits in must not lead out of the project through a symlink. The file itself
-   * is not followed, so a link stays visible. Anything else throws INVALID_PATH.
+   * The real path of a document (SEC-19, SEC-31). The document must lie inside the hub, the
+   * folder it sits in must not lead out of the project through a symlink, and the document
+   * itself must not be a symlink: a link is refused, never followed. Following it would read
+   * the target into the hub and into `versions/`, whatever the target is. Anything else
+   * throws INVALID_PATH.
    */
   private async resolveFullPath(documentPath: string): Promise<string> {
     const inHub = hubDocumentPath(this.projectPath, documentPath);
     const real = inHub === null
       ? null
       : await resolveContainedEntry(this.projectPath, path.relative(this.projectPath, inHub));
-    if (real === null) {
+    if (real === null || (await isSymlinkNoFollow(real))) {
       throw new KnowledgeHubError(
-        `Document path leaves the knowledge hub or the project: ${documentPath}`,
+        `Document path leaves the knowledge hub or the project, or is a symlink: ${documentPath}`,
         'INVALID_PATH',
         { documentPath }
       );

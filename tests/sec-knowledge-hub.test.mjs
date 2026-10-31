@@ -2,11 +2,14 @@
  * SEC-19 and SEC-20 (MEDIUM): the knowledge hub never moves or replaces a project
  * file on its own, and a document path stays inside the hub.
  *
- * Three rules are tested:
+ * Four rules are tested:
  * - `init` does not move the root documents (INDEX.md and similar) into the hub;
  * - `migrate` keeps a file that is already in the hub, and says so;
  * - a document path (from `hub-config.yaml`, or a hub folder that is a symlink)
- *   that leaves the hub or the project writes nothing.
+ *   that leaves the hub or the project writes nothing;
+ * - SEC-31: a document that is a symlink is never read or replaced, a planted
+ *   `<document>.tmp` link is never written through, and a document id or a version
+ *   name cannot leave the versions folder.
  *
  * Every server test starts the real MCP server (`node dist/index.js`) over stdio on a
  * throwaway project. The project sits one level down in a throwaway outer directory
@@ -24,7 +27,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -329,5 +332,323 @@ describe('knowledge_hub: pure rules', () => {
     }
     // A sibling whose name starts with the hub name is not inside the hub.
     assert.equal(hubDocumentPath('/p', '../knowledge-hub-evil/x.md'), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-31: document links, temporary files, document ids and version names
+// ---------------------------------------------------------------------------
+
+// The C1 check (SEC-26) walks the `knowledge-hub` folder before every action and refuses a
+// link that leaves the project. The tests below therefore use what that walk lets through:
+// a link to a file inside the project, and functions called directly.
+
+const SECRET = 'SEC31-SECRET-CANARY';
+const OUTSIDE_CANARY = 'SEC31-OUTSIDE-CANARY';
+
+/** Text of every regular file under `dir`, keyed by relative path (links are not followed). */
+async function textsUnder(dir) {
+  const out = {};
+  async function walk(rel) {
+    for (const e of await readdir(path.join(dir, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) await walk(r);
+      else if (e.isFile()) out[r] = await readFile(path.join(dir, r), 'utf8');
+    }
+  }
+  await walk('');
+  return out;
+}
+
+/** A version file as VersionManager writes it. `version` may differ from the file name. */
+const versionYaml = ({ version, change = 'planted' }) => [
+  `version: ${version}`,
+  'document_id: INDEX',
+  'content: old content',
+  'metadata:',
+  '  changes:',
+  `    - ${change}`,
+  '  trigger: manual',
+  '  author: planted',
+  'created_at: 2020-01-01T00:00:00.000Z',
+  '',
+].join('\n');
+
+describe('SEC-31: a document that is a symlink', () => {
+  it('update does not copy the text of a document link into versions/ or the answer', T, async () => {
+    await withNested(async ({ proj }) => {
+      await writeFile(path.join(proj, '.env'), `${SECRET}\n`);
+      let res;
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        await rm(hubFile(proj, 'core/INDEX.md'));
+        await symlink('../../.env', hubFile(proj, 'core/INDEX.md'));
+        res = await call({ action: 'update', document_id: 'INDEX', require_confirmation: false });
+      });
+
+      const texts = await textsUnder(path.join(proj, 'knowledge-hub'));
+      const leaked = Object.entries(texts).filter(([, text]) => text.includes(SECRET)).map(([name]) => name);
+      assert.deepEqual(leaked, [], `the text of the linked file was copied into the hub: ${leaked.join(', ')}`);
+      assert.ok(!res.text.includes(SECRET), 'the answer holds the text of the linked file');
+      assert.equal(await readFile(path.join(proj, '.env'), 'utf8'), `${SECRET}\n`, 'the linked file changed');
+      assert.match(res.text, /"success": false/, `update must report the refusal:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  it('DocumentManager.load refuses a document that is a link to a file outside the project', T, async () => {
+    const { DocumentManager } = await import(distUrl('core/tools/knowledgeHub/core/DocumentManager.js'));
+    await withNested(async ({ proj, outside }) => {
+      await mkdir(path.join(proj, 'knowledge-hub', 'core'), { recursive: true });
+      await writeFile(path.join(outside, 'credentials'), `${SECRET}\n`);
+      await symlink(path.join(outside, 'credentials'), hubFile(proj, 'core/INDEX.md'));
+      const manager = new DocumentManager(proj);
+
+      let loaded = null;
+      let error = null;
+      try {
+        loaded = await manager.load('core/INDEX.md');
+      } catch (e) {
+        error = e;
+      }
+      assert.equal(loaded?.content?.includes(SECRET) ?? false, false, 'load returned the text of a file outside the project');
+      assert.equal(error?.code, 'INVALID_PATH', `load must fail with INVALID_PATH, got ${error?.code ?? 'no error'}`);
+    });
+  });
+
+  it('DocumentManager.save refuses a document that is a link, and the link stays', T, async () => {
+    const { DocumentManager } = await import(distUrl('core/tools/knowledgeHub/core/DocumentManager.js'));
+    await withNested(async ({ proj, outside }) => {
+      await mkdir(path.join(proj, 'knowledge-hub', 'core'), { recursive: true });
+      await writeFile(path.join(outside, 'target.md'), 'OUTSIDE ORIGINAL\n');
+      await symlink(path.join(outside, 'target.md'), hubFile(proj, 'core/INDEX.md'));
+      const manager = new DocumentManager(proj);
+
+      let error = null;
+      try {
+        await manager.save('core/INDEX.md', 'new text');
+      } catch (e) {
+        error = e;
+      }
+      assert.ok((await lstat(hubFile(proj, 'core/INDEX.md'))).isSymbolicLink(), 'save replaced the link with a regular file');
+      assert.equal(await readFile(path.join(outside, 'target.md'), 'utf8'), 'OUTSIDE ORIGINAL\n', 'save changed the link target');
+      assert.ok(error, 'save must fail when the document is a link');
+    });
+  });
+
+  it('DocumentManager still loads, saves and finds a regular document', T, async () => {
+    const { DocumentManager } = await import(distUrl('core/tools/knowledgeHub/core/DocumentManager.js'));
+    await withNested(async ({ proj }) => {
+      const manager = new DocumentManager(proj);
+      assert.equal(await manager.exists('core/INDEX.md'), false);
+      await manager.save('core/INDEX.md', 'hello hub');
+      assert.equal(await manager.exists('core/INDEX.md'), true);
+      assert.equal((await manager.load('core/INDEX.md')).content, 'hello hub');
+    });
+  });
+});
+
+describe('SEC-31: the temporary file of safeWriteFile', () => {
+  const kinds = {
+    'a link to an existing file': async ({ outside }) => {
+      await writeFile(path.join(outside, 'target.txt'), 'OUTSIDE ORIGINAL\n');
+      return { target: path.join(outside, 'target.txt'), want: 'OUTSIDE ORIGINAL\n' };
+    },
+    'a dangling link': async ({ outside }) => ({ target: path.join(outside, 'not-yet.txt'), want: null }),
+  };
+
+  for (const [what, plant] of Object.entries(kinds)) {
+    it(`a planted <document>.tmp that is ${what} is not written through`, T, async () => {
+      const { safeWriteFile } = await import(distUrl('core/tools/knowledgeHub/utils/fileUtils.js'));
+      await withNested(async nested => {
+        const dir = path.join(nested.proj, 'knowledge-hub', 'core');
+        await mkdir(dir, { recursive: true });
+        const { target, want } = await plant(nested);
+        await symlink(target, path.join(dir, 'INDEX.md.tmp'));
+
+        await safeWriteFile(path.join(dir, 'INDEX.md'), 'NEW CONTENT\n');
+
+        if (want === null) assert.equal(existsSync(target), false, 'safeWriteFile created a file outside the project through the .tmp link');
+        else assert.equal(await readFile(target, 'utf8'), want, 'safeWriteFile wrote through the .tmp link');
+        assert.equal(await readFile(path.join(dir, 'INDEX.md'), 'utf8'), 'NEW CONTENT\n', 'the document was not written');
+        assert.ok((await lstat(path.join(dir, 'INDEX.md'))).isFile(), 'the document is not a regular file');
+        assert.deepEqual((await readdir(dir)).sort(), ['INDEX.md', 'INDEX.md.tmp'], 'a temporary file was left behind');
+      });
+    });
+  }
+
+  it('safeWriteFile replaces a regular document and leaves no temporary file', T, async () => {
+    const { safeWriteFile } = await import(distUrl('core/tools/knowledgeHub/utils/fileUtils.js'));
+    await withNested(async ({ proj }) => {
+      const file = path.join(proj, 'doc.md');
+      await writeFile(file, 'old');
+      await safeWriteFile(file, 'new');
+      assert.equal(await readFile(file, 'utf8'), 'new');
+      assert.deepEqual((await readdir(proj)).sort(), ['doc.md', 'package.json']);
+    });
+  });
+});
+
+describe('SEC-31: document ids and version names stay inside the versions folder', () => {
+  /** init, then plant two version files outside the project, in `<outer>/outside`. */
+  async function plantOutsideVersions(outside) {
+    await writeFile(path.join(outside, '1.0.0.yaml'), versionYaml({ version: '1.0.0', change: OUTSIDE_CANARY }));
+    await writeFile(path.join(outside, '1.0.1.yaml'), versionYaml({ version: '1.0.1', change: OUTSIDE_CANARY }));
+  }
+  const ESCAPE_ID = '../../../outside';
+
+  it('history with a document_id that climbs out of the versions folder reads nothing outside', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      await plantOutsideVersions(outside);
+      const res = await withHub(proj, async call => {
+        await call({ action: 'init' });
+        return call({ action: 'history', document_id: ESCAPE_ID });
+      });
+      assert.ok(!res.text.includes(OUTSIDE_CANARY), `history listed version files from a folder outside the project:\n${res.text.slice(0, 600)}`);
+      assert.match(res.text, /"success": false/, `history must report the refusal:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  it('diff with a document_id that climbs out, and version names that climb out, reads nothing outside', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      await plantOutsideVersions(outside);
+      const res = await withHub(proj, async call => {
+        await call({ action: 'init' });
+        return call({ action: 'diff', document_id: ESCAPE_ID, from_version: '../../x', to_version: '../../y' });
+      });
+      assert.ok(!res.text.includes(OUTSIDE_CANARY), `diff showed version files from a folder outside the project:\n${res.text.slice(0, 600)}`);
+    });
+    await withNested(async ({ proj, outside }) => {
+      await plantOutsideVersions(outside);
+      const res = await withHub(proj, async call => {
+        await call({ action: 'init' });
+        return call({ action: 'diff', document_id: ESCAPE_ID });
+      });
+      assert.ok(!res.text.includes(OUTSIDE_CANARY), `diff showed version files from a folder outside the project:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  it('rollback with a version name that climbs out restores nothing from outside', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      await writeFile(path.join(outside, 'stolen.yaml'), versionYaml({ version: 'stolen' }).replace('old content', OUTSIDE_CANARY));
+      const res = await withHub(proj, async call => {
+        await call({ action: 'init' });
+        return call({ action: 'rollback', document_id: 'INDEX', version: '../../../../outside/stolen' });
+      });
+      const index = await readFile(hubFile(proj, 'core/INDEX.md'), 'utf8');
+      assert.ok(!index.includes(OUTSIDE_CANARY), 'rollback restored the text of a file outside the project');
+      assert.match(res.text, /"success": false|error/i, `rollback must report the refusal:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  // Reachability through the tool. The version list also holds registry.yaml (every .yaml file in the
+  // folder is listed), whose sort position depends on the order of the directory listing, so on
+  // the old code this test deletes the victim for the listing order tried here, not for every order.
+  // The next test calls deleteVersion directly and does not depend on the order.
+  it('prune does not delete a file outside the versions folder when a version file names one', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      const victim = path.join(outside, 'victim.yaml');
+      await writeFile(victim, 'victim\n');
+      let res;
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        // Eleven ordinary versions and one whose own `version` field names a path. Prune keeps
+        // the ten newest by file name and deletes the rest by the `version` field inside.
+        const dir = path.join(proj, 'knowledge-hub', 'versions', 'INDEX');
+        await mkdir(dir, { recursive: true });
+        for (let n = 1; n <= 11; n++) await writeFile(path.join(dir, `1.0.${n}.yaml`), versionYaml({ version: `1.0.${n}` }));
+        await writeFile(path.join(dir, '0.0.1.yaml'), versionYaml({ version: '../../../../outside/victim' }));
+        // A hub INDEX.md that differs from the generated one, so update makes a version.
+        await writeFile(hubFile(proj, 'core/INDEX.md'), 'text that the generator does not produce\n');
+        res = await call({ action: 'update', document_id: 'INDEX', require_confirmation: false });
+      });
+      assert.equal(await textOrNull(victim), 'victim\n', `prune deleted a file outside the versions folder (answer: ${res.text.slice(0, 300)})`);
+    });
+  });
+
+  it('VersionManager.deleteVersion and getVersion refuse a version name that climbs out of the versions folder', T, async () => {
+    const { VersionManager } = await import(distUrl('core/tools/knowledgeHub/core/VersionManager.js'));
+    await withNested(async ({ proj, outside }) => {
+      const victim = path.join(outside, 'victim.yaml');
+      await writeFile(victim, 'victim\n');
+      await writeFile(path.join(outside, 'stolen.yaml'), versionYaml({ version: 'stolen' }).replace('old content', OUTSIDE_CANARY));
+      const manager = new VersionManager(proj);
+
+      let deleteError = null;
+      try {
+        await manager.deleteVersion('INDEX', '../../../../outside/victim');
+      } catch (e) {
+        deleteError = e;
+      }
+      assert.equal(await textOrNull(victim), 'victim\n', 'deleteVersion deleted a file outside the versions folder');
+      assert.equal(deleteError?.code, 'INVALID_PATH', `deleteVersion must fail with INVALID_PATH, got ${deleteError?.code ?? 'no error'}`);
+
+      let read = null;
+      let readError = null;
+      try {
+        read = await manager.getVersion('INDEX', '../../../../outside/stolen');
+      } catch (e) {
+        readError = e;
+      }
+      assert.equal(JSON.stringify(read ?? {}).includes(OUTSIDE_CANARY), false, 'getVersion read a version file outside the versions folder');
+      assert.equal(readError?.code, 'INVALID_PATH', `getVersion must fail with INVALID_PATH, got ${readError?.code ?? 'no error'}`);
+    });
+  });
+
+  it('a registry.yaml that names a path deletes nothing outside (guard: registry.yaml is not read for names)', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      const victim = path.join(outside, 'victim-registry.yaml');
+      await writeFile(victim, 'victim\n');
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        const dir = path.join(proj, 'knowledge-hub', 'versions', 'INDEX');
+        await mkdir(dir, { recursive: true });
+        for (let n = 1; n <= 11; n++) await writeFile(path.join(dir, `1.0.${n}.yaml`), versionYaml({ version: `1.0.${n}` }));
+        await writeFile(
+          path.join(dir, 'registry.yaml'),
+          'document_id: INDEX\nversions:\n  - version: ../../../../outside/victim-registry\n    trigger: manual\n    author: planted\n',
+        );
+        await writeFile(hubFile(proj, 'core/INDEX.md'), 'text that the generator does not produce\n');
+        await call({ action: 'update', document_id: 'INDEX', require_confirmation: false });
+      });
+      assert.equal(await textOrNull(victim), 'victim\n', 'a registry.yaml entry caused a delete outside the versions folder');
+    });
+  });
+
+  it('control: history and update still work for an ordinary document', T, async () => {
+    await withNested(async ({ proj }) => {
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        const dir = path.join(proj, 'knowledge-hub', 'versions', 'INDEX');
+        await mkdir(dir, { recursive: true });
+        for (let n = 1; n <= 3; n++) await writeFile(path.join(dir, `1.0.${n}.yaml`), versionYaml({ version: `1.0.${n}` }));
+        const before = await call({ action: 'history', document_id: 'INDEX' });
+        assert.equal(body(before)?.total_versions, 3, `history:\n${before.text.slice(0, 400)}`);
+        await writeFile(hubFile(proj, 'core/INDEX.md'), 'text that the generator does not produce\n');
+        const upd = await call({ action: 'update', document_id: 'INDEX', require_confirmation: false });
+        assert.equal(body(upd)?.success, true, `update failed:\n${upd.text.slice(0, 400)}`);
+        assert.ok(existsSync(path.join(dir, '1.0.4.yaml')), 'update must save the new version next to the old ones');
+      });
+    });
+  });
+});
+
+describe('SEC-31: containedJoin and getVersionsPath (support tests: new function)', () => {
+  it('containedJoin returns a path strictly inside the base, otherwise null', async () => {
+    const { containedJoin } = await import(distUrl('core/tools/knowledgeHub/utils/configUtils.js'));
+    assert.equal(containedJoin('/p/base', 'a.yaml'), '/p/base/a.yaml');
+    assert.equal(containedJoin('/p/base', 'a/b.yaml'), '/p/base/a/b.yaml', 'a separator inside the name is fine when the result stays inside');
+    assert.equal(containedJoin('/p/base', 'a/../b.yaml'), '/p/base/b.yaml');
+    for (const bad of ['../x', '../../x.yaml', 'a/../../x', '', '.', '..', 'a\0b', '../base-evil/x']) {
+      assert.equal(containedJoin('/p/base', bad), null, `${JSON.stringify(bad)} must be refused`);
+    }
+  });
+
+  it('getVersionsPath keeps an ordinary id inside the versions folder and throws for an id that climbs out', async () => {
+    const { getVersionsPath } = await import(distUrl('core/tools/knowledgeHub/utils/configUtils.js'));
+    assert.equal(getVersionsPath('/p'), '/p/knowledge-hub/versions');
+    assert.equal(getVersionsPath('/p', 'INDEX'), '/p/knowledge-hub/versions/INDEX');
+    for (const bad of ['../x', '../../../outside', '..', '.', 'a\0b']) {
+      assert.throws(() => getVersionsPath('/p', bad), error => error.code === 'INVALID_PATH', `${JSON.stringify(bad)} must throw INVALID_PATH`);
+    }
   });
 });

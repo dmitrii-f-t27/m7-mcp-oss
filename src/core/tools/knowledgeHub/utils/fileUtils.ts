@@ -5,29 +5,38 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
 import { KnowledgeHubError } from '../types.js';
 
 /**
  * Safely write file with atomic operation
  * Writes to temp file first, then renames (atomic on most systems)
+ *
+ * SEC-31: the temporary file has a random name and is created with `wx`, which fails on any
+ * existing entry, a symlink included. A link planted at `<file>.tmp` is therefore never
+ * written through. The rename replaces `filePath` itself, also when that is a link.
  */
 export async function safeWriteFile(
   filePath: string,
   content: string
 ): Promise<void> {
-  const tempPath = `${filePath}.tmp`;
+  const tempPath = `${filePath}.${randomBytes(8).toString('hex')}.tmp`;
+  let created = false;
   
   try {
     // Write to temp file
-    await fs.writeFile(tempPath, content, 'utf-8');
+    await fs.writeFile(tempPath, content, { encoding: 'utf-8', flag: 'wx' });
+    created = true;
     
     // Atomic rename
     await fs.rename(tempPath, filePath);
   } catch (error: any) {
-    // Clean up temp file if it exists
-    try {
-      await fs.unlink(tempPath);
-    } catch {}
+    // Clean up the temp file, but only one this call created
+    if (created) {
+      try {
+        await fs.unlink(tempPath);
+      } catch {}
+    }
     
     throw new KnowledgeHubError(
       `Failed to write file: ${error.message}`,

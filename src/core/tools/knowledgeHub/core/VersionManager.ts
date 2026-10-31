@@ -19,7 +19,7 @@ import {
   ensureDirectory,
   listFilesRecursive
 } from '../utils/fileUtils.js';
-import { getVersionsPath } from '../utils/configUtils.js';
+import { containedJoin, getVersionsPath } from '../utils/configUtils.js';
 
 export class VersionManager {
   constructor(private projectPath: string) {}
@@ -198,9 +198,18 @@ export class VersionManager {
   
   // ===== Private Helper Methods =====
   
+  /** SEC-31: a version name that leaves the document's versions folder throws INVALID_PATH. */
   private getVersionPath(documentId: string, version: string): string {
     const versionsDir = getVersionsPath(this.projectPath, documentId);
-    return path.join(versionsDir, `${version}.yaml`);
+    const full = containedJoin(versionsDir, `${version}.yaml`);
+    if (full === null) {
+      throw new KnowledgeHubError(
+        `Version name leaves the versions folder: ${version}`,
+        'INVALID_PATH',
+        { documentId, version }
+      );
+    }
+    return full;
   }
   
   private getRegistryPath(documentId: string): string {

@@ -14,6 +14,7 @@ import {
   HUB_DIRECTORIES,
   CONFIG_FILE_NAME,
   KNOWLEDGE_HUB_VERSION,
+  KnowledgeHubError,
   ValidationError
 } from '../types.js';
 import { safeReadFile, safeWriteFile, fileExists } from './fileUtils.js';
@@ -170,7 +171,19 @@ export function hubDocumentPath(projectPath: string, documentPath: string): stri
 }
 
 /**
+ * Pure. `name` joined below `base`, or null when the result is not strictly inside `base`:
+ * it climbs out with `..`, it names `base` itself, or it holds a NUL byte (SEC-31). A
+ * separator inside `name` is fine while the result stays inside.
+ */
+export function containedJoin(base: string, name: string): string | null {
+  if (name.indexOf('\0') !== -1) return null;
+  const full = path.join(base, name);
+  return full !== base && isInside(base, full) ? full : null;
+}
+
+/**
  * Get versions directory path
+ * SEC-31: a document id that leaves the versions folder throws INVALID_PATH.
  */
 export function getVersionsPath(
   projectPath: string,
@@ -179,7 +192,15 @@ export function getVersionsPath(
   const basePath = path.join(getHubPath(projectPath), 'versions');
   
   if (documentId) {
-    return path.join(basePath, documentId);
+    const full = containedJoin(basePath, documentId);
+    if (full === null) {
+      throw new KnowledgeHubError(
+        `Document id leaves the versions folder: ${documentId}`,
+        'INVALID_PATH',
+        { documentId }
+      );
+    }
+    return full;
   }
   
   return basePath;
