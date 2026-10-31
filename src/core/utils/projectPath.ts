@@ -568,31 +568,3 @@ export function isValidProjectDirectory(projectPath: string): boolean {
     existsSync(join(projectPath, indicator))
   );
 }
-
-export function getProjectRelativePath(
-  absolutePath: string,
-  projectPath?: string
-): string {
-  const base = projectPath || getProjectPath();
-  const relative = absolutePath.startsWith(base)
-    ? absolutePath.slice(base.length + 1)
-    : absolutePath;
-
-  return relative.startsWith('/') ? relative.slice(1) : relative;
-}
-
-export function resolveProjectPath(
-  path: string,
-  projectPath?: string
-): string {
-  const base = projectPath || getProjectPath();
-
-  if (isAbsolute(path)) {
-    if (!path.startsWith(base)) {
-      logger.warn(`[M7 ProjectPath] Path is outside project: ${path}`);
-    }
-    return path;
-  }
-
-  return join(base, path);
-}

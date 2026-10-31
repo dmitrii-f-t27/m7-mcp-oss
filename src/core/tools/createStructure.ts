@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { mkdir } from 'fs/promises';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 import { cwd } from 'process';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { createLogger } from '../utils/logger.js';
 import { writeIfAbsent } from '../utils/safeWrite.js';
+import { resolveContained } from '../security/pathGuard.js';
 
 const logger = createLogger('createStructure');
 
@@ -168,6 +169,9 @@ function generateSemanticFolderName(
 
 // Function to actually create files on disk.
 // A file that already exists is never replaced: it may hold the user's edits.
+// Every path is checked first, before any directory is made: a task id with `..`
+// or a docs folder that is a symlink must not lead out of the project (`wx` stops
+// a replace, but it does not protect the parent directories).
 // Returns the project-relative paths created and the ones kept.
 async function createM7Files(
   files: M7File[],
@@ -179,14 +183,19 @@ async function createM7Files(
   const created: string[] = [];
   const skipped: string[] = [];
 
+  const targets: Array<{ file: M7File; absolutePath: string }> = [];
   for (const file of files) {
-    try {
-      // Create absolute path from project root
-      const absolutePath = join(resolvedRoot, file.path);
-      const dirPath = dirname(absolutePath);
+    const absolutePath = await resolveContained(resolvedRoot, file.path);
+    if (absolutePath === null) {
+      throw new Error(`Refusing to write outside the project: ${file.path}`);
+    }
+    targets.push({ file, absolutePath });
+  }
 
+  for (const { file, absolutePath } of targets) {
+    try {
       // Create directory recursively if it doesn't exist
-      await mkdir(dirPath, { recursive: true });
+      await mkdir(dirname(absolutePath), { recursive: true });
 
       // Write file content only when the file is absent
       const outcome = await writeIfAbsent(absolutePath, file.template);

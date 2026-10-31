@@ -18,6 +18,7 @@ import {
   DEFAULT_EXCLUDE_PATTERNS
 } from './types.js';
 import { getProjectPath } from '../../utils/projectPath.js';
+import { guardPath, pullRefusal } from '../../security/pathGuard.js';
 import { createLogger } from '../../utils/logger.js';
 // v5.0: Use UnifiedMemoryCore instead of MemorySystem
 import { getMemoryCore, UnifiedMemoryCore } from '../../../memory/auto/unified-memory-core.js';
@@ -55,7 +56,7 @@ export const projectIndexTool = {
       },
       output_path: {
         type: 'string',
-        description: 'Output path for INDEX.md (optional - defaults to PROJECT_INDEX.md in project root)'
+        description: 'Output path for INDEX.md, inside the project (optional - defaults to PROJECT_INDEX.md in project root). Paths outside the project and secret or control paths (.env, .git, .cursor) are refused'
       },
       template: {
         type: 'string',
@@ -109,7 +110,13 @@ export const projectIndexTool = {
     try {
       const params = ProjectIndexRequestSchema.parse(request);
       const projectPath = params.project_path || getProjectPath();
-      const outputPath = params.output_path || path.join(projectPath, 'PROJECT_INDEX.md');
+      // The index is written inside the project only, and never to a secret or control path.
+      const requestedOutput = params.output_path || 'PROJECT_INDEX.md';
+      const outputGuard = await guardPath(projectPath, requestedOutput, pullRefusal);
+      if (!outputGuard.ok) {
+        throw new Error(`output_path refused (${requestedOutput}): ${outputGuard.reason}`);
+      }
+      const outputPath = outputGuard.abs;
 
       log.debug(`Using project path: ${projectPath}`);
       log.debug(`${params.action} action for project: ${projectPath}`);

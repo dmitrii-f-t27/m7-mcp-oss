@@ -1,6 +1,6 @@
 import type { FogOfWarEntry } from '../../memory/memorySystem.js';
-import path from 'path';
 import { getProjectPath } from '../utils/projectPath.js';
+import { resolveContained } from '../security/pathGuard.js';
 import { CONTROL_CHANNEL_GROUNDING_BULLET } from './controlChannel.js';
 import {
   getEpistemicStatus,
@@ -62,17 +62,13 @@ const PASS_STATUSES: ReadonlySet<EpistemicStatus> = new Set(['KNOWN', 'HUMAN_CON
 
 const FILESYSTEM_PREMISE_CONFIDENCE = 0.8;
 
-function resolveSafeProjectPath(projectRoot: string, relativePath: string): string | null {
+/** A premise path stays inside the project, also after symlinks are followed. */
+async function resolveSafeProjectPath(projectRoot: string, relativePath: string): Promise<string | null> {
   const trimmed = relativePath.replace(/^\/+/, '').trim();
   if (!trimmed) {
     return null;
   }
-  const absolute = path.resolve(projectRoot, trimmed);
-  const rel = path.relative(projectRoot, absolute);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return null;
-  }
-  return absolute;
+  return resolveContained(projectRoot, trimmed);
 }
 
 function buildFilesystemPremiseRecord(relPath: string): MemoryRecord {
@@ -207,7 +203,7 @@ export async function resolvePremiseRef(ref: string): Promise<MemoryRecord | nul
   if (ref.startsWith('path:')) {
     lookupRef = ref.slice(5).trim();
     const projectRoot = getProjectPath();
-    const absolute = resolveSafeProjectPath(projectRoot, lookupRef);
+    const absolute = await resolveSafeProjectPath(projectRoot, lookupRef);
     if (!absolute) {
       return null;
     }
