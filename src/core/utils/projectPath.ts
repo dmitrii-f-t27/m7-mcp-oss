@@ -465,11 +465,12 @@ function registerRootsChangeHandler(mcpServer: unknown): void {
       logger.info('[M7 ProjectPath] Roots changed notification received');
       // An explicit project_path is sticky (see the order above): a Roots change does not move it.
       if (userExplicitProjectPath) return;
-      resolvedFromRoots = false;
       rootsAttemptCount = 0;
-      // The cache stays until the new answer arrives. If the client fails to answer, the
-      // session stays on its current project. When the answer names another path,
-      // applyResolvedWorkspace tells subscribers once, with the real old path.
+      // The cache and the resolvedFromRoots flag stay until the new answer arrives. If the
+      // client fails to answer, the session stays on its current project: with the flag
+      // cleared, the next ensureProjectPathResolved would fall through to M7_PROJECT_PATH
+      // and move the session. A successful answer sets the flag itself, and when it names
+      // another path, applyResolvedWorkspace tells subscribers once, with the real old path.
       await fetchWorkspaceFromMcpRoots(mcpServer);
     });
     rootsChangeHandlerRegistered = true;

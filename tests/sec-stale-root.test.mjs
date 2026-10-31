@@ -805,6 +805,37 @@ describe('SEC-21: a Roots change moves the session', () => {
     assert.ok(existsSync(path.join(B, '.m7', 'task-graph.json')), 'the task graph of project B was not written');
     assertUntouched('the working directory', beforeA, await snapshot(A));
   });
+
+  // The test above has M7_PROJECT_PATH unset, so a session that lost its Roots flag had nowhere
+  // to go. With M7_PROJECT_PATH set, the next ensureProjectPathResolved call used to apply it.
+  it('a refresh that fails leaves the session on B when M7_PROJECT_PATH names C', T, async () => {
+    const { A, B, C } = await makeTrio();
+    const beforeA = await snapshot(A);
+    const beforeC = await snapshot(C);
+    let update = '';
+    await session(
+      () => startWithRoots({ cwd: A, roots: [B], listChanged: true, env: { M7_PROJECT_PATH: C } }),
+      async s => {
+        await s.call(SCHEMA_TOOL, VIEW);
+        const seen = s.rootsCalls();
+        s.failRoots(true);
+        await s.sendRootsListChanged();
+        assert.ok(
+          await waitFor(() => s.rootsCalls() > seen),
+          'the server did not ask roots/list again after roots/list_changed',
+        );
+        await sleep(500); // the server handles the failure
+        await s.call('mcp_m7_analyze_task', { task_description: TASK });
+        update = (await s.call(SCHEMA_TOOL, UPDATE('written-after-failed-refresh'))).text;
+      },
+    );
+    assert.ok(existsSync(path.join(B, '.m7', 'task-graph.json')), 'the task graph of project B was not written');
+    assert.ok(!existsSync(path.join(C, '.m7', 'task-graph.json')), 'analyze_task moved the session to M7_PROJECT_PATH (project C) after a failed refresh');
+    assertUntouched('project C (M7_PROJECT_PATH)', beforeC, await snapshot(C));
+    assert.match(update, /"success": true/, `the update must succeed:\n${update.slice(0, 500)}`);
+    assert.match(await readText(path.join(B, 'PROJECT_SCHEMA.yaml')), /written-after-failed-refresh/, 'project B did not get the update');
+    assertUntouched('the working directory', beforeA, await snapshot(A));
+  });
 });
 
 // ---------------------------------------------------------------------------
