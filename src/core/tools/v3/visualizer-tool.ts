@@ -154,9 +154,9 @@ async function handleStart(server: VisualizerServer): Promise<string> {
 
 The visualizer server is already running.
 
-**Open in browser:** http://localhost:3848
+**Open in browser:** http://127.0.0.1:3848
 
-WebSocket: ws://localhost:3847`;
+WebSocket: ws://127.0.0.1:3847`;
   }
   
   // Ensure Knowledge Graph is built
@@ -169,11 +169,11 @@ WebSocket: ws://localhost:3847`;
   
   return `# 🚀 Visualizer Started
 
-**Open in browser:** http://localhost:${httpPort}
+**Open in browser:** http://127.0.0.1:${httpPort}
 
 ## Connection Info
-- **HTTP:** http://localhost:${httpPort}
-- **WebSocket:** ws://localhost:${wsPort}
+- **HTTP:** http://127.0.0.1:${httpPort}
+- **WebSocket:** ws://127.0.0.1:${wsPort}
 
 ## Features
 - 🗺️ Interactive dependency graph
@@ -207,8 +207,8 @@ function handleStatus(server: VisualizerServer): string {
   if (running) {
     return `# 🟢 Visualizer Status: Running
 
-**HTTP:** http://localhost:3848
-**WebSocket:** ws://localhost:3847
+**HTTP:** http://127.0.0.1:3848
+**WebSocket:** ws://127.0.0.1:3847
 
 The visualizer is active and ready.`;
   } else {
@@ -316,12 +316,12 @@ The visualizer is not running yet.
 
 Start it with \`action: "start"\`, then open:
 
-**http://localhost:3848**`;
+**http://127.0.0.1:3848**`;
   }
   
   return `# 🔗 Open Visualizer
 
-**URL:** http://localhost:3848
+**URL:** http://127.0.0.1:3848
 
 Copy and paste this URL into your browser to view the interactive dependency graph.
 

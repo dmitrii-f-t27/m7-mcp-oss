@@ -45,3 +45,29 @@ makes these requests. They use your keys and carry no task text.
 - **Telemetry** is sent only if you set `M7_TELEMETRY_ENDPOINT`.
 - **Mesh relay** traffic goes only to the host in `M7_MESH_RELAY`.
 - **ChromaDB** is read at `CHROMA_URL` (default `http://localhost:8000`).
+
+## The visualizer (`mcp_m7_visualizer`)
+
+The visualizer starts only when you call `mcp_m7_visualizer` with
+`action: "start"`. It serves the dependency graph of the project and the
+current context (active file, modified files, task description).
+
+- **Where it listens:** the HTTP server (default port 3848) and the WebSocket
+  server (default port 3847) bind to `127.0.0.1` only. Other machines on the
+  network cannot connect. Open `http://127.0.0.1:3848`.
+- **No CORS headers.** No HTTP answer carries an `Access-Control-*` header,
+  including the answer to a preflight (`OPTIONS`) request. A browser therefore
+  stops a web page from another site from reading the answers.
+- **Host check.** Every HTTP request must carry the Host
+  `127.0.0.1:<http port>` or `localhost:<http port>`. Any other Host gets 403.
+  This stops DNS rebinding, where a foreign name resolves to `127.0.0.1`.
+- **Origin check.** A WebSocket upgrade that carries an Origin header must come
+  from `http://127.0.0.1:<http port>` or `http://localhost:<http port>`. Any
+  other Origin gets 403, so a web page from another site cannot open the
+  socket. An upgrade with no Origin header is accepted: browsers always send
+  one, and a program that runs as your user and is not a browser can read the
+  project files without the visualizer.
+- **Message size:** the WebSocket server refuses messages larger than 64 KiB.
+- **There is no token or password.** Any other user account on the same
+  machine can connect to `127.0.0.1` while the visualizer runs and read what it
+  serves. Do not start the visualizer on a shared multi-user machine.

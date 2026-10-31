@@ -23,6 +23,43 @@ import {
 } from './types.js';
 
 // ============================================
+// LOCAL-ONLY RULES (SEC-6)
+// ============================================
+
+/**
+ * The visualizer listens on loopback only. These two decisions stop a web page
+ * in the user's browser from reaching it:
+ *  - Host stops DNS rebinding (a foreign name that resolves to 127.0.0.1);
+ *  - Origin stops cross-site WebSocket connections.
+ * They are small and pure on purpose: they have no state and no I/O.
+ */
+export const VISUALIZER_BIND_HOST = '127.0.0.1';
+
+const LOOPBACK_NAMES = ['127.0.0.1', 'localhost'];
+
+/**
+ * Host header of an HTTP request. Allowed: `127.0.0.1:<httpPort>` and
+ * `localhost:<httpPort>` (name in any letter case). A missing header is refused.
+ */
+export function isHostAllowed(hostHeader: string | undefined, httpPort: number): boolean {
+  if (typeof hostHeader !== 'string') return false;
+  const host = hostHeader.toLowerCase();
+  return LOOPBACK_NAMES.some((name) => host === `${name}:${httpPort}`);
+}
+
+/**
+ * Origin header of a WebSocket upgrade. Allowed: `http://127.0.0.1:<httpPort>`
+ * and `http://localhost:<httpPort>`. No Origin header at all is allowed: a
+ * local program that is not a browser can already read the project. Any
+ * other value, including an empty one and `null`, is refused.
+ */
+export function isOriginAllowed(origin: string | undefined, httpPort: number): boolean {
+  if (origin === undefined) return true;
+  const value = origin.toLowerCase();
+  return LOOPBACK_NAMES.some((name) => value === `http://${name}:${httpPort}`);
+}
+
+// ============================================
 // VISUALIZER SERVER
 // ============================================
 
@@ -64,8 +101,8 @@ export class VisualizerServer {
     this.isRunning = true;
     
     log.debug(`M7 Visualizer] Server started`);
-    log.debug(`M7 Visualizer] HTTP: http://localhost:${this.config.httpPort}`);
-    log.debug(`M7 Visualizer] WebSocket: ws://localhost:${this.config.wsPort}`);
+    log.debug(`M7 Visualizer] HTTP: http://${VISUALIZER_BIND_HOST}:${this.config.httpPort}`);
+    log.debug(`M7 Visualizer] WebSocket: ws://${VISUALIZER_BIND_HOST}:${this.config.wsPort}`);
     
     return { wsPort: this.config.wsPort, httpPort: this.config.httpPort };
   }
@@ -121,7 +158,7 @@ export class VisualizerServer {
         this.handleHttpRequest(req, res);
       });
       
-      this.httpServer.listen(this.config.httpPort, () => {
+      this.httpServer.listen(this.config.httpPort, VISUALIZER_BIND_HOST, () => {
         resolve();
       });
       
@@ -134,14 +171,12 @@ export class VisualizerServer {
   private handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = req.url || '/';
     
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (req.method === 'OPTIONS') {
-      res.writeHead(200);
-      res.end();
+    // No CORS headers: nothing outside this server's own page may read it.
+    // OPTIONS gets no special answer; it is routed like any other request.
+    // Host check on every request (DNS rebinding).
+    if (!isHostAllowed(req.headers.host, this.config.httpPort)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden');
       return;
     }
     
@@ -186,7 +221,20 @@ export class VisualizerServer {
   
   private startWebSocketServer(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({ port: this.config.wsPort });
+      this.wss = new WebSocketServer({
+        host: VISUALIZER_BIND_HOST,
+        port: this.config.wsPort,
+        maxPayload: 65536,
+        // Origin check on the upgrade. Two parameters: ws then answers a
+        // refusal with the status code given here.
+        verifyClient: (info, done) => {
+          if (isOriginAllowed(info.origin, this.config.httpPort)) {
+            done(true);
+          } else {
+            done(false, 403, 'Forbidden');
+          }
+        },
+      });
       
       this.wss.on('connection', (ws: WebSocket) => {
         this.handleConnection(ws);
@@ -716,7 +764,7 @@ export class VisualizerServer {
     
     // Connect to WebSocket
     function connect() {
-      ws = new WebSocket('ws://localhost:' + WS_PORT);
+      ws = new WebSocket('ws://' + location.hostname + ':' + WS_PORT);
       
       ws.onopen = () => {
         document.getElementById('status-text').textContent = 'Connected';
