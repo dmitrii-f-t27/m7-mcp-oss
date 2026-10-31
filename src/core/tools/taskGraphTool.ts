@@ -25,7 +25,6 @@ const TaskGraphRequestSchema = z.object({
 });
 
 export function createTaskGraphTool() {
-  const graphManager = getTaskGraphManager();
   const mermaidGenerator = getMermaidGenerator();
   
   return {
@@ -61,6 +60,8 @@ export function createTaskGraphTool() {
     },
     handler: async (request: any) => {
       const { action, filter, limit = 10, task_id, depth = 2 } = TaskGraphRequestSchema.parse(request);
+      // The graph manager is replaced when the project changes, so it is read when the tool runs.
+      const graphManager = getTaskGraphManager();
       
       await graphManager.initialize();
       

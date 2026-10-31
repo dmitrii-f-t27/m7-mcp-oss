@@ -11,6 +11,7 @@
  */
 
 import { createLogger } from '../utils/logger.js';
+import { onProjectPathChange } from '../utils/projectPath.js';
 import { randomBytes } from 'crypto';
 import {
   TaskTransfer,
@@ -334,6 +335,12 @@ export class TransferManager {
 
 // Singleton instance
 let managerInstance: TransferManager | null = null;
+
+// It holds the task graph manager of its project, which is replaced on a project change,
+// so it must be replaced too. It keeps no state of its own.
+onProjectPathChange(() => {
+  managerInstance = null;
+});
 
 /**
  * Получает singleton экземпляр менеджера

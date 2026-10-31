@@ -327,7 +327,8 @@ function resolveEnvFallbackPath(allowCache: boolean): string {
   if (fromEnv.path) {
     if (allowCache) {
       logger.info(`[M7 ProjectPath] Using ${fromEnv.source}: ${fromEnv.path}`);
-      cachedProjectPath = fromEnv.path;
+      // Caching goes through applyResolvedWorkspace so that subscribers hear the new path.
+      return applyResolvedWorkspace(fromEnv.path, false);
     }
     return fromEnv.path;
   }
@@ -356,7 +357,7 @@ function resolveEnvFallbackPath(allowCache: boolean): string {
   }
 
   if (allowCache && !isUnsafeFallbackPath(bestCwd)) {
-    cachedProjectPath = bestCwd;
+    return applyResolvedWorkspace(bestCwd, false);
   }
 
   return bestCwd;

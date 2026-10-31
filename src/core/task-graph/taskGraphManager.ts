@@ -25,7 +25,7 @@ import {
   TASK_GRAPH_VERSION
 } from '../types/taskGraph.js';
 import { TaskInterpretation } from '../types/interpretation.js';
-import { getProjectPath } from '../utils/projectPath.js';
+import { getProjectPath, onProjectPathChange } from '../utils/projectPath.js';
 
 const log = createLogger('[TaskGraphManager]');
 
@@ -452,6 +452,12 @@ export class TaskGraphManager {
 
 // Singleton instance
 let managerInstance: TaskGraphManager | null = null;
+
+// The manager works on one project (its graph file lives there). It saves on every change,
+// so a new project only needs a new manager.
+onProjectPathChange(() => {
+  managerInstance = null;
+});
 
 /**
  * Получает singleton экземпляр менеджера

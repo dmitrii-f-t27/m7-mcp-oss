@@ -15,7 +15,7 @@ export { MermaidGenerator } from './mermaid-generator.js';
 
 import { existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { getProjectPath } from '../core/utils/projectPath.js';
+import { getProjectPath, onProjectPathChange } from '../core/utils/projectPath.js';
 import { GraphStore } from './graph-store.js';
 import { ImpactAnalyzer } from './impact-analyzer.js';
 import { CycleDetector } from './cycle-detector.js';
@@ -408,6 +408,13 @@ export class KnowledgeGraph {
 
 let knowledgeGraphInstance: KnowledgeGraph | null = null;
 let kgLazyLoaded = false;
+
+// The graph is built from one project and its cache file lives there. Nothing in it is saved
+// by this module, so a project change drops it and the next caller loads or builds a new one.
+onProjectPathChange(() => {
+  knowledgeGraphInstance = null;
+  kgLazyLoaded = false;
+});
 
 /**
  * Get or create Knowledge Graph instance.

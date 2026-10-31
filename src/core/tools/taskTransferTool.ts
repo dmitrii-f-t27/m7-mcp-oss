@@ -25,10 +25,11 @@ const TaskTransferRequestSchema = z.object({
   session_id: z.string().optional()
 });
 
-export function createTaskTransferTool(orchestrator: TaskOrchestrator) {
-  const transferManager = getTransferManager();
-  const graphManager = getTaskGraphManager();
-  
+/**
+ * The orchestrator, the transfer manager and the graph manager are replaced when the project
+ * changes, so none of them is captured here: the tool gets the current ones when it runs.
+ */
+export function createTaskTransferTool(getOrchestrator: () => TaskOrchestrator) {
   return {
     name: 'mcp_m7_task_transfer',
     description: 'Transfer tasks when scope grows beyond original estimate',
@@ -61,6 +62,9 @@ export function createTaskTransferTool(orchestrator: TaskOrchestrator) {
     },
     handler: async (request: any) => {
       const { action, reason, new_title, task_id, session_id } = TaskTransferRequestSchema.parse(request);
+      const orchestrator = getOrchestrator();
+      const transferManager = getTransferManager();
+      const graphManager = getTaskGraphManager();
       
       // Get current session
       await orchestrator.ready();

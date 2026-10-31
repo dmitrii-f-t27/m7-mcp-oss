@@ -14,7 +14,11 @@ const ScopeRequestSchema = z.object({
   reason: z.string().optional()
 });
 
-export function createScopeTool(scopeGuard: ScopeGuard, orchestrator: TaskOrchestrator) {
+/**
+ * The guard and the orchestrator are replaced when the project changes, so the tool takes
+ * functions that return the current ones and reads them when it runs.
+ */
+export function createScopeTool(getScopeGuard: () => ScopeGuard, getOrchestrator: () => TaskOrchestrator) {
   return {
     name: 'mcp_m7_scope',
     description: 'Manage task scope and prevent scope creep',
@@ -49,6 +53,8 @@ export function createScopeTool(scopeGuard: ScopeGuard, orchestrator: TaskOrches
     },
     handler: async (request: any) => {
       const { action, sessionId, budget, reason } = ScopeRequestSchema.parse(request);
+      const scopeGuard = getScopeGuard();
+      const orchestrator = getOrchestrator();
       
       // Get session ID
       await orchestrator.ready();

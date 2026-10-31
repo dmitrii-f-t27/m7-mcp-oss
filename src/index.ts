@@ -142,7 +142,7 @@ import { generateIntelligentHints, addHintsToResponse } from './core/utils/hintG
 // Import schema converter
 import { extractZodSchema } from './core/utils/schemaConverter.js';
 // Import project path utility
-import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved, needsProjectSwitch } from './core/utils/projectPath.js';
+import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved, isRootsResolutionComplete, needsProjectSwitch } from './core/utils/projectPath.js';
 import { registerShutdownContributor } from './core/shutdown/flushOnExit.js';
 import { PACKAGE_VERSION } from './core/utils/packageVersion.js';
 class M7MCPServer {
@@ -154,7 +154,8 @@ class M7MCPServer {
   private scopeGuard: ScopeGuard;
   private schema: SchemaSystem;
   private apiManager: APIManager;
-  private tsiSystem: TSISystem;
+  /** TSI is built on the first TSI tool call, on the project the server works on by then. */
+  private tsiSystem: Promise<TSISystem> | null = null;
   private projectPath: string;
   private registeredToolNames: string[] = [];
 
@@ -197,14 +198,10 @@ class M7MCPServer {
     registerShutdownContributor(() => this.orchestrator.flushPersist());
     this.scopeGuard = new ScopeGuard(this.orchestrator, this.journal);
     this.apiManager = this.initializeAPIManager();
-    
-    // Initialize TSI System
-    this.tsiSystem = new TSISystem();
-    log('✅ [M7 DEBUG] TSI System initialized');
 
     onProjectPathChange((oldPath, newPath) => {
       // The first resolution arrives with oldPath null, and the constructor may have guessed
-      // the right path already. A Roots change can also announce one path twice.
+      // the right path already. The same path can also be announced again later.
       // Switch only when the systems below are not on newPath yet.
       if (!needsProjectSwitch(this.projectPath, newPath)) return;
       log(`[M7 Server] Project path changed: ${oldPath ?? '(none)'} → ${newPath}`);
@@ -222,14 +219,12 @@ class M7MCPServer {
       );
       this.orchestrator = new TaskOrchestrator(this.journal);
       this.scopeGuard = new ScopeGuard(this.orchestrator, this.journal);
+      this.tsiSystem = null; // its data lives in the project, so the next TSI call builds a new one
       resetWarmupManager();
     });
 
     // Register all tools synchronously first
     this.setupTools();
-    
-    // Initialize TSI System asynchronously after registration
-    this.initializeTSI().catch(err => log('[TSI Init Error]', err));
   }
 
   private initializeAPIManager(): APIManager {
@@ -253,21 +248,33 @@ class M7MCPServer {
     return manager;
   }
 
-  private async initializeTSI() {
+  /**
+   * The TSI system of the current project. It is built and initialized once, on the first call
+   * after the project is known; a project change or a failed initialization clears it.
+   */
+  private getTSI(): Promise<TSISystem> {
+    if (this.tsiSystem) return this.tsiSystem;
     log('🔧 [M7 DEBUG] Initializing TSI System...');
-    await this.tsiSystem.initialize();
-    log('✅ [M7 DEBUG] TSI System fully initialized');
+    const pending = (async () => {
+      const tsi = new TSISystem();
+      await tsi.initialize();
+      log('✅ [M7 DEBUG] TSI System fully initialized');
+      return tsi;
+    })();
+    this.tsiSystem = pending;
+    // A failed initialization must not stay: the next call tries again. The caller still sees the error.
+    pending.catch(() => {
+      if (this.tsiSystem === pending) this.tsiSystem = null;
+    });
+    return pending;
   }
 
   private setupTools() {
     
     // 1. Analyze Task Tool
-    this.registerTool(analyzeTaskTool, async (request: any) => {
-      // Wait for the workspace first: the first call can arrive before Roots are answered,
-      // and this.orchestrator and this.schema are rebuilt when the workspace resolves.
-      await ensureProjectPathResolved(this.server);
-      return analyzeTaskTool.handler(request, this.router, this.orchestrator, this.schema, this.server);
-    });
+    this.registerTool(analyzeTaskTool, (request: any) =>
+      analyzeTaskTool.handler(request, this.router, this.orchestrator, this.schema, this.server)
+    );
 
     // 2. Memory Tool
     this.registerTool(unifiedMemoryTool, (request: any) => 
@@ -285,7 +292,7 @@ class M7MCPServer {
     );
 
     // 5. Scope Tool (requires factory function)
-    const scopeTool = createScopeTool(this.scopeGuard, this.orchestrator);
+    const scopeTool = createScopeTool(() => this.scopeGuard, () => this.orchestrator);
     this.registerTool(scopeTool, (request: any) => scopeTool.handler(request));
 
     // 6. Init Project Tool
@@ -306,8 +313,6 @@ class M7MCPServer {
 
     // 11. Schema Tool
     this.registerTool(schemaTool, async (request: any) => {
-      // Wait for the workspace first, so this.schema belongs to the right project.
-      await ensureProjectPathResolved(this.server);
       const { action, component, changes, format } = request;
       
       switch (action) {
@@ -409,14 +414,7 @@ class M7MCPServer {
     try {
       for (const tsiTool of TSI_MCP_TOOLS) {
         this.registerTool(tsiTool, async (request: any) => {
-          // Wait for TSI initialization if not ready
-          if (!(this.tsiSystem as any).initialized) {
-            return {
-              content: [{ type: 'text', text: 'TSI System is still initializing. Please try again in a moment.' }],
-              isError: false
-            };
-          }
-          return await tsiTool.handler(request, this.tsiSystem);
+          return await tsiTool.handler(request, await this.getTSI());
         });
         log(`✅ [M7 DEBUG] TSI Tool registered: ${tsiTool.name}`);
       }
@@ -437,11 +435,9 @@ class M7MCPServer {
     }
     
     try {
-      this.registerTool(contractsTool, async (request: any) => {
-        // Wait for the workspace first, so this.journal and this.schema belong to the right project.
-        await ensureProjectPathResolved(this.server);
-        return contractsTool.handler(request, { journal: this.journal, schema: this.schema });
-      });
+      this.registerTool(contractsTool, (request: any) =>
+        contractsTool.handler(request, { journal: this.journal, schema: this.schema })
+      );
       log('✅ [M7 DEBUG] contractsTool registered');
     } catch (error: any) {
       log('❌ [M7 DEBUG] contractsTool registration failed:', error.message);
@@ -608,7 +604,7 @@ class M7MCPServer {
 
     // 34. Task Transfer Tool (factory — needs TaskOrchestrator)
     try {
-      const taskTransferTool = createTaskTransferTool(this.orchestrator);
+      const taskTransferTool = createTaskTransferTool(() => this.orchestrator);
       this.registerTool(taskTransferTool, (request: any) => taskTransferTool.handler(request));
       log('✅ [M7 DEBUG] taskTransferTool registered');
     } catch (error: any) {
@@ -805,6 +801,10 @@ class M7MCPServer {
       async (args: any) => {
         try {
           log(`[M7] Executing ${tool.name}`);
+          // Wait for the workspace before any tool runs: the first call can arrive before Roots are
+          // answered, and the systems are rebuilt when the workspace resolves. Once Roots are
+          // resolved (or given up) this costs nothing.
+          if (!isRootsResolutionComplete()) await ensureProjectPathResolved(this.server);
           const result = await handler(args);
           
           // Handle both direct response and wrapped response formats
@@ -903,15 +903,15 @@ class M7MCPServer {
         if (prevOnInit) await prevOnInit();
         
         log('[M7 MCP] Client initialized, resolving workspace from MCP Roots...');
+        // this.projectPath is not set here: the change callback owns it, together with the
+        // systems built on it. A path stored without rebuilding them would hide the next switch.
         const rootsPath = await initFromMcpRoots(this.server);
         if (rootsPath) {
-          log(`[M7 MCP] Workspace resolved: ${rootsPath}`);
-          this.projectPath = rootsPath;
+          log(`[M7 MCP] Workspace resolved: ${getProjectPathDiagnostics().currentPath}`);
         } else {
-          const resolved = await ensureProjectPathResolved(this.server);
-          this.projectPath = resolved;
+          await ensureProjectPathResolved(this.server);
           const diagnostics = getProjectPathDiagnostics();
-          log(`[M7 MCP] Roots pending — resolved via ${diagnostics.source}: ${resolved}`);
+          log(`[M7 MCP] Roots pending — resolved via ${diagnostics.source}: ${diagnostics.currentPath}`);
         }
       };
     }

@@ -1,4 +1,6 @@
+import { join } from 'path';
 import { createLogger } from '../core/utils/logger.js';
+import { getProjectPath } from '../core/utils/projectPath.js';
 const log = createLogger('[TSI]');
 
 /**
@@ -84,7 +86,10 @@ export const RISK_LEVELS = [
 
 // Конфигурация по умолчанию
 export const DEFAULT_TSI_CONFIG = {
-  dataPath: '.m7/tsi',
+  // Absolute, and read when the config is used: the project can change during a session.
+  get dataPath(): string {
+    return join(getProjectPath(), '.m7', 'tsi');
+  },
   cacheSize: 1000,
   autoUpdate: false,
   updateInterval: 60,

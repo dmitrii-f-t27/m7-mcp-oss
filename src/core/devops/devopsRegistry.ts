@@ -12,7 +12,7 @@
 import { createLogger } from '../utils/logger.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getProjectPath } from '../utils/projectPath.js';
+import { getProjectPath, onProjectPathChange } from '../utils/projectPath.js';
 import {
   DevOpsConfig,
   Environment,
@@ -577,6 +577,12 @@ export class DevOpsRegistry {
 
 // Singleton
 let instance: DevOpsRegistry | null = null;
+
+// The registry holds the DevOps config of one project, including its deploy commands.
+// Another project must never run them, so a project change drops it.
+onProjectPathChange(() => {
+  instance = null;
+});
 
 export function getDevOpsRegistry(projectPath?: string): DevOpsRegistry {
   if (!instance) {

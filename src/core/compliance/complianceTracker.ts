@@ -11,7 +11,7 @@
 import { createLogger } from '../utils/logger.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getProjectPath } from '../utils/projectPath.js';
+import { getProjectPath, onProjectPathChange } from '../utils/projectPath.js';
 import {
   ComplianceConfig,
   ComplianceStats,
@@ -314,6 +314,12 @@ export class ComplianceTracker {
 
 // Singleton
 let instance: ComplianceTracker | null = null;
+
+// The tracker works on one project (its config file lives there). It writes on save(), which
+// its callers call, so a new project only needs a new tracker.
+onProjectPathChange(() => {
+  instance = null;
+});
 
 export function getComplianceTracker(projectPath?: string): ComplianceTracker {
   if (!instance) {

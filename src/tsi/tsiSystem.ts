@@ -1,4 +1,6 @@
+import { join } from 'path';
 import { createLogger } from '../core/utils/logger.js';
+import { getProjectPath } from '../core/utils/projectPath.js';
 const log = createLogger('[TSI]');
 
 import { 
@@ -364,7 +366,8 @@ export class TSISystem implements ITSISystem {
 
   private getDefaultConfig(): KnowledgeBaseConfig {
     return {
-      dataPath: '.m7/tsi',
+      // Absolute: a relative path would follow the working directory, not the project.
+      dataPath: join(getProjectPath(), '.m7', 'tsi'),
       cacheSize: 1000,
       autoUpdate: false,
       updateInterval: 60,

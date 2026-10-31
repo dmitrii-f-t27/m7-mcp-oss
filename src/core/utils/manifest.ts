@@ -11,7 +11,7 @@ import fs from 'fs/promises';
 import { createLogger } from './logger.js';
 import { atomicWriteJSON, safeReadJSON } from './atomicWrite.js';
 import { withRetry, DEFAULT_RETRY_CONFIG } from './retry.js';
-import { getProjectPath } from './projectPath.js';
+import { getProjectPath, onProjectPathChange } from './projectPath.js';
 
 const log = createLogger('[Manifest]');
 
@@ -351,6 +351,12 @@ export class ManifestManager {
 // ============================================================================
 
 let manifestManager: ManifestManager | null = null;
+
+// The manager holds the manifest of one project. A caller that still holds the old manager
+// saves it to the old project; the next caller gets a manager for the new one.
+onProjectPathChange(() => {
+  manifestManager = null;
+});
 
 export function getManifestManager(projectPath?: string): ManifestManager {
   if (!manifestManager) {
