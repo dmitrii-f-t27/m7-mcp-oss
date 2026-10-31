@@ -505,6 +505,13 @@ describe('projectPath', () => {
     assert.equal('getProjectRelativePath' in mod, false, 'getProjectRelativePath is still exported');
     assert.equal('resolveProjectPath' in mod, false, 'resolveProjectPath is still exported');
   });
+
+  // SEC-22: validatePath checked a path with a bare `startsWith`, so `/p/b-evil` passed for `/p/b`.
+  // Nothing called it. A helper that is wrong and unused is removed, so no one starts to use it.
+  it('the knowledge hub prefix-check helper validatePath is gone', async () => {
+    const mod = await import(distUrl('core/tools/knowledgeHub/utils/fileUtils.js'));
+    assert.equal('validatePath' in mod, false, 'validatePath is still exported');
+  });
 });
 
 // ---------------------------------------------------------------------------

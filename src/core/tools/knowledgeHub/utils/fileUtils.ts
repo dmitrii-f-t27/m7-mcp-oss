@@ -170,29 +170,6 @@ export async function getFileStats(filePath: string): Promise<Awaited<ReturnType
 }
 
 /**
- * Validate path is within project (prevent path traversal)
- */
-export function validatePath(
-  userPath: string,
-  projectRoot: string
-): string {
-  // Normalize and resolve path
-  const normalized = path.normalize(userPath);
-  const resolved = path.resolve(projectRoot, normalized);
-  
-  // Ensure path is within project
-  if (!resolved.startsWith(projectRoot)) {
-    throw new KnowledgeHubError(
-      'Path traversal detected',
-      'INVALID_PATH',
-      { userPath, projectRoot }
-    );
-  }
-  
-  return resolved;
-}
-
-/**
  * List files in directory recursively
  */
 export async function listFilesRecursive(

@@ -66,6 +66,11 @@ class ConsoleMonitor {
   static getInstance(journal: JournalSystem): ConsoleMonitor {
     if (!this.instance) {
       this.instance = new ConsoleMonitor(journal);
+    } else {
+      // SEC-27: there is one monitor per process, but the journal belongs to the current
+      // project and is replaced when the server moves to another one. Every call passes the
+      // journal of the moment, so the monitor takes it instead of keeping the first.
+      this.instance.journal = journal;
     }
     return this.instance;
   }

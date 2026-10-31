@@ -54,8 +54,17 @@ const SECRET_PREFIXES = ['.env.'];
  * old push filter blocked `*.env`; it is kept so no protection is lost.
  */
 const SECRET_SUFFIXES = ['.key', '.pem', '.p12', '.pfx', '.jks', '.keystore', '.env'];
-/** Names (whole path segment, folded) that steer git, editors, agents or M7. */
-const CONTROL_NAMES = ['.git', '.cursor', '.cursorrules', '.vscode', '.claude', '.m7', '.husky', '.github', '.mcp.json'];
+/**
+ * Names (whole path segment, folded) that steer git, editors, agents or M7. Agent
+ * instruction files (`claude.md`, `agents.md`, `gemini.md`, `.clinerules`, `.windsurfrules`)
+ * and tool folders (`.devcontainer`, `.idea`) change what an agent or a tool does the same
+ * way `.cursorrules` does; `.gitmodules` and `.gitattributes` steer git.
+ */
+const CONTROL_NAMES = [
+  '.git', '.cursor', '.cursorrules', '.vscode', '.claude', '.m7', '.husky', '.github', '.mcp.json',
+  'claude.md', 'agents.md', 'gemini.md', '.clinerules', '.windsurfrules', '.devcontainer', '.idea',
+  '.gitmodules', '.gitattributes',
+];
 
 function isSeparator(code: number, win: boolean): boolean {
   return code === SLASH || (win && code === BACKSLASH);

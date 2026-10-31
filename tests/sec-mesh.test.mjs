@@ -554,6 +554,27 @@ describe('peerText rules', () => {
     assert.equal(peerLine('a\udc41b'), 'a\udc41b');
   });
 
+  // The SECURITY.md promise is that zero-width and bidi marks are cleaned. These invisible code points
+  // were not: a soft hyphen, a grapheme joiner, an Arabic letter mark, the Mongolian vowel separator,
+  // the word joiner block (U+2060-U+2065) and the interlinear annotation marks (U+FFF9-U+FFFB).
+  it('peerLine and peerBlock also turn soft hyphen, grapheme joiner, Arabic letter mark, word joiner and annotation marks into a space', async () => {
+    const { peerLine, peerBlock } = await import(distUrl('mesh/peerText.js'));
+    const hidden = [0xad, 0x34f, 0x61c, 0x180e, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x2065, 0xfff9, 0xfffa, 0xfffb];
+    for (const code of hidden) {
+      const hex = `U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+      assert.equal(peerLine(`x${String.fromCharCode(code)}y`), 'x y', `peerLine ${hex}`);
+      assert.equal(peerBlock(`x${String.fromCharCode(code)}y`), 'x y', `peerBlock ${hex}`);
+    }
+    // Text spelled with word joiners between its letters is not hidden from the reader.
+    assert.equal(peerLine('S\u2060Y\u2060S\u2060T\u2060E\u2060M'), 'S Y S T E M');
+    // Neighbours and ordinary text stay.
+    for (const code of [0xac, 0xae, 0x620, 0x2057, 0x205f, 0xfffc]) {
+      const hex = `U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+      assert.equal(peerLine(`x${String.fromCharCode(code)}y`), `x${String.fromCharCode(code)}y`, `${hex} must stay`);
+    }
+    assert.equal(peerBlock('a\nb\tc é日😀'), 'a\nb\tc é日😀');
+  });
+
   it('peerBlock keeps newlines and tabs and breaks fences', async () => {
     const { peerBlock } = await import(distUrl('mesh/peerText.js'));
     assert.equal(peerBlock('a\nb\tc\u0007d\r\ne'), 'a\nb\tc d \ne');
@@ -667,6 +688,26 @@ describe('pathGuard denylist rules', () => {
     assert.equal(typeof pushRefusal('a.Key'), 'string');
     assert.equal(typeof pullRefusal('a.Key'), 'string');
     assert.equal(typeof pullRefusal('dir/sub/x.KEY'), 'string');
+  });
+
+  // Files and folders that steer agents and tools the same way .cursorrules does (SEC-7 follow-up).
+  it('pullRefusal refuses agent instruction files and tool folders, also in a look-alike spelling; pushRefusal allows them', async () => {
+    const { pushRefusal, pullRefusal } = await import(distUrl('core/security/pathGuard.js'));
+    const steering = [
+      'CLAUDE.md', 'claude.md', 'sub/AGENTS.md', 'agents.md', 'docs/Gemini.md', '.clinerules', '.windsurfrules',
+      '.devcontainer/devcontainer.json', '.idea/workspace.xml', '.gitmodules', '.gitattributes', 'a\\.idea\\x',
+      // Look-alike spellings: long s, ignorable marks, trailing dot, full-width letters.
+      '.windſurfrules', 'agentſ.md', '.gitattributeſ', '.cliner\u00adules', 'CLAUDE.md.', '．gitmodules', 'ＡＧＥＮＴＳ.md',
+    ];
+    for (const p of steering) {
+      assert.equal(typeof pullRefusal(p), 'string', `pull must refuse ${JSON.stringify(p)}`);
+      assert.equal(pushRefusal(p), null, `push must allow ${JSON.stringify(p)} (control paths are refused on pull only)`);
+    }
+    const ordinary = [
+      'claude.md.txt', 'my-agents.md', 'docs/claude-notes.md', '.ideas/a', 'gitmodules', '.gitattributes.bak', '.clinerules.md',
+      'devcontainer/a.json', 'agents/readme.md', '.gitignore',
+    ];
+    for (const p of ordinary) assert.equal(pullRefusal(p), null, `pull must allow ${JSON.stringify(p)}`);
   });
 
   // Support test: the fold is a new export, so this fails first with "foldName is not a function".

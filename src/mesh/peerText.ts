@@ -4,7 +4,8 @@
  * Before such text reaches the model it passes through one of two functions:
  * - `peerLine`: one line. Every control character becomes a space, so a peer cannot
  *   start a line of its own. Controls are C0, DEL, C1, zero-width and bidi marks, line
- *   and paragraph separators, the byte order mark and tag characters (see `isControl`).
+ *   and paragraph separators, the byte order mark, tag characters and other invisible
+ *   marks (see `isControl`).
  * - `peerBlock`: several lines. Newlines and tabs stay, so file content stays readable.
  *
  * Both break the fence marks `<<<` and `>>>` (a space goes in front of every third
@@ -37,7 +38,11 @@ const FENCE_RUN = 3;
  * - line and paragraph separators (U+2028, U+2029);
  * - bidi controls (U+202A-U+202E, U+2066-U+2069);
  * - the byte order mark, zero-width no-break space (U+FEFF);
- * - tag characters (U+E0000-U+E007F), which render as nothing.
+ * - tag characters (U+E0000-U+E007F), which render as nothing;
+ * - other invisible marks: the soft hyphen (U+00AD), the combining grapheme joiner
+ *   (U+034F), the Arabic letter mark (U+061C), the Mongolian vowel separator (U+180E),
+ *   the word joiner block (U+2060-U+2065) and the interlinear annotation marks
+ *   (U+FFF9-U+FFFB).
  * With `keepLayout`, line feed and tab are not controls.
  */
 function isControl(code: number, keepLayout: boolean): boolean {
@@ -49,6 +54,9 @@ function isControl(code: number, keepLayout: boolean): boolean {
   if (code >= 0x2066 && code <= 0x2069) return true;
   if (code === 0xfeff) return true;
   if (code >= 0xe0000 && code <= 0xe007f) return true;
+  if (code === 0xad || code === 0x34f || code === 0x61c || code === 0x180e) return true;
+  if (code >= 0x2060 && code <= 0x2065) return true;
+  if (code >= 0xfff9 && code <= 0xfffb) return true;
   return false;
 }
 

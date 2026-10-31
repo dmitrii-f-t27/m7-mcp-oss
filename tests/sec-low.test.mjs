@@ -38,7 +38,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RELAY_JS = path.join(REPO_ROOT, 'dist', 'mesh', 'relay', 'server.js');
@@ -494,5 +494,45 @@ describe('SEC-10: scripts/merge-cursor-config.mjs', () => {
     assert.deepEqual(seen, ['600', '600'], 'the temporary file was created with a mode other than 600');
 
     assert.equal(statSync(fresh).mode & 0o777, 0o600, 'a new config file must not be readable by others');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-27: the console monitor follows the journal of the current project
+// ---------------------------------------------------------------------------
+
+// `ConsoleMonitor` is one object per process. It took the journal of the first caller and
+// kept it, so after the server moved to another project (a Roots change, or an explicit
+// project_path) the errors it captured went to the journal of the old project. The tool is
+// the way in: every call passes the journal of the moment, and the monitor must use it.
+
+describe('SEC-27: ConsoleMonitor uses the journal of the latest call', () => {
+  it('a console error captured after a second call reaches the second journal, not the first', async () => {
+    const { consoleTool } = await import(pathToFileURL(path.join(REPO_ROOT, 'dist', 'core', 'tools', 'critical', 'console.js')).href);
+    const makeJournal = () => {
+      const errors = [];
+      return { errors, logError: entry => { errors.push(entry); return Promise.resolve('id'); }, logFeature: () => Promise.resolve('id') };
+    };
+    const j1 = makeJournal();
+    const j2 = makeJournal();
+
+    // Silence the real console while the monitor wraps it: the monitor remembers this stub as the original.
+    const realError = console.error;
+    console.error = () => {};
+    try {
+      await consoleTool.handler({ action: 'start' }, { journal: j1 });
+      console.error('sec-27 first error, project one');
+      assert.equal(j1.errors.length, 1, 'control: the first journal must get the first error');
+
+      await consoleTool.handler({ action: 'status' }, { journal: j2 });
+      console.error('sec-27 second error, project two');
+
+      assert.equal(j1.errors.length, 1, 'the first journal got an error after the project changed');
+      assert.equal(j2.errors.length, 1, 'the second journal got no error: the monitor kept the first journal');
+      assert.match(j2.errors[0].error, /sec-27 second error/);
+      await consoleTool.handler({ action: 'stop' }, { journal: j2 });
+    } finally {
+      console.error = realError;
+    }
   });
 });
