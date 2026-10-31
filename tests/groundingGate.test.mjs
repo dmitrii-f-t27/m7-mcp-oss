@@ -214,4 +214,63 @@ assert.ok(report.includes('| 0 | 0 |'));
   ));
 }
 
+// G16 — a file that exists is KNOWN however the clock ticks inside the check.
+// The check stamps the premise record with the time it builds it and judges the record
+// with the time it asks. When a millisecond boundary fell between the two, a file that
+// exists decayed below the KNOWN threshold, turned STALE and drew a warning (a strong one
+// on an irreversible step). A clock that moves one millisecond on every read makes that
+// boundary fall every time; one `now` per premise makes the answer independent of the clock.
+{
+  const dir = await mkdtemp(path.join(tmpdir(), 'grounding-clock-'));
+  const prev = { M7_PROJECT_PATH: process.env.M7_PROJECT_PATH, CURSOR_WORKSPACE: process.env.CURSOR_WORKSPACE };
+  const realNow = Date.now;
+  process.env.M7_PROJECT_PATH = dir;
+  process.env.CURSOR_WORKSPACE = dir;
+  try {
+    resetProjectPathStateForTests();
+    resetMemoryCore();
+    await mkdir(path.join(dir, 'src'), { recursive: true });
+    await writeFile(path.join(dir, 'src', 'present.ts'), 'export const x = 1;\n');
+    for (const reversibility of ['reversible', 'irreversible']) {
+      const spec = parseGroundingSpec(`\`\`\`json
+{
+  "grounding": {
+    "premises": [{ "id": "p1", "ref": "path:src/present.ts", "claim": "file exists" }],
+    "steps": [{
+      "id": "s1",
+      "description": "edit the file",
+      "reversibility": "${reversibility}",
+      "premise_ids": ["p1"]
+    }]
+  }
+}
+\`\`\``);
+      assert.ok(spec);
+      for (let run = 1; run <= 5; run++) {
+        let tick = realNow.call(Date);
+        Date.now = () => (tick += 1);
+        let result;
+        try {
+          result = await runGroundingCheck(spec, 'full');
+        } finally {
+          Date.now = realNow;
+        }
+        const label = `${reversibility} step, run ${run}`;
+        assert.equal(result.resolved[0].found, true, `${label}: the file exists`);
+        assert.equal(result.resolved[0].status, 'KNOWN', `${label}: status of an existing file`);
+        assert.equal(result.warnings.length, 0, `${label}: no warning for an existing file`);
+      }
+    }
+  } finally {
+    Date.now = realNow;
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetProjectPathStateForTests();
+    resetMemoryCore();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 console.log('All groundingGate tests passed');

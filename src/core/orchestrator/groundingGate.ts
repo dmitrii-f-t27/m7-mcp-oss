@@ -71,7 +71,7 @@ async function resolveSafeProjectPath(projectRoot: string, relativePath: string)
   return resolveContained(projectRoot, trimmed);
 }
 
-function buildFilesystemPremiseRecord(relPath: string): MemoryRecord {
+function buildFilesystemPremiseRecord(relPath: string, now: number): MemoryRecord {
   return {
     id: `path_${relPath.replace(/\W/g, '_')}`,
     content: `File exists: ${relPath}`,
@@ -81,7 +81,7 @@ function buildFilesystemPremiseRecord(relPath: string): MemoryRecord {
     confidence: FILESYSTEM_PREMISE_CONFIDENCE,
     accessCount: 0,
     createdAt: new Date(),
-    lastValidated: Date.now(),
+    lastValidated: now,
     metadata: {
       type: 'reference_file',
       source: relPath,
@@ -195,7 +195,12 @@ export function parseGroundingSpec(artifactContent: string): GroundingSpec | nul
   return null;
 }
 
-export async function resolvePremiseRef(ref: string): Promise<MemoryRecord | null> {
+/**
+ * `now` stamps a record built from the filesystem. runGroundingCheck judges the record with
+ * the same `now`, so a clock tick between the two cannot age a file that exists. A caller
+ * that passes no `now` gets the time at which the record is built.
+ */
+export async function resolvePremiseRef(ref: string, now?: number): Promise<MemoryRecord | null> {
   const { getMemoryCore } = await import('../../memory/auto/unified-memory-core.js');
   const memCore = await getMemoryCore();
 
@@ -214,7 +219,7 @@ export async function resolvePremiseRef(ref: string): Promise<MemoryRecord | nul
       return null;
     }
 
-    let record = buildFilesystemPremiseRecord(lookupRef);
+    let record = buildFilesystemPremiseRecord(lookupRef, now ?? Date.now());
     const entries = await memCore.getFogOfWar({ path: lookupRef, includeInvalidated: false });
     const fog = entries.find(e => e.path === lookupRef) ?? entries[0];
     if (fog) {
@@ -274,9 +279,11 @@ export async function runGroundingCheck(
   const statusByPremiseId = new Map<string, EpistemicStatus | 'NOT_FOUND'>();
 
   for (const premise of spec.premises) {
-    const record = await resolvePremiseRef(premise.ref);
+    // One reading of the clock per premise: the record is stamped and judged with the same `now`.
+    const now = Date.now();
+    const record = await resolvePremiseRef(premise.ref, now);
     const status: EpistemicStatus | 'NOT_FOUND' = record
-      ? getEpistemicStatus(record)
+      ? getEpistemicStatus(record, now)
       : 'NOT_FOUND';
     statusByPremiseId.set(premise.id, status);
     resolved.push({
