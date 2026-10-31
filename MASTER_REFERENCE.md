@@ -38,9 +38,7 @@ are drained on exit by the shutdown flush.
 | `@modelcontextprotocol/sdk` | MCP protocol / stdio transport |
 | `zod` | tool input schemas |
 | `js-yaml` | config and TSI patterns |
-| `chromadb` (optional) | vector memory; falls back to local JSON when unavailable |
 | `openai`, `@anthropic-ai/sdk` | Hive agents |
-| `chokidar` | file watchers |
 
 ## Data Files
 

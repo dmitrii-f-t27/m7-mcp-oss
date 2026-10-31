@@ -1,0 +1,2718 @@
+[
+ {
+  "name": "mcp_m7_analyze_task",
+  "title": "Analyze Task",
+  "description": "Analyze task complexity and route appropriately with chaos detection, baseline audit and orchestration",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "task_description": {
+     "type": "string",
+     "description": "Description of the task to analyze"
+    },
+    "context": {},
+    "override_token": {
+     "type": "string",
+     "description": "Emergency override token for chaotic requests"
+    },
+    "create_session": {
+     "type": "boolean",
+     "description": "Create orchestrated M7 session (default: true)",
+     "default": true
+    },
+    "reuse_session": {
+     "type": "boolean",
+     "description": "Try to reuse existing session for similar task (default: true)",
+     "default": true
+    }
+   },
+   "required": [
+    "task_description"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_arch_advisor",
+  "title": "Arch Advisor",
+  "description": "Architectural Advisor - analyze architecture, detect antipatterns, generate C4 diagrams, suggest refactoring.\n\nActions:\n- analyze: Full analysis with score (A-F grade)\n- detect_antipatterns: Find architecture problems\n- suggest_refactoring: Get actionable improvement steps\n- generate_c4: Generate C4 architecture diagrams\n- score: Quick score summary\n- critical_issues: Only critical problems\n- top_suggestions: Best improvement opportunities",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "analyze",
+      "detect_antipatterns",
+      "suggest_refactoring",
+      "generate_c4",
+      "score",
+      "critical_issues",
+      "top_suggestions"
+     ]
+    },
+    "c4_level": {
+     "type": "string",
+     "enum": [
+      "context",
+      "container",
+      "component",
+      "code"
+     ]
+    },
+    "severity_filter": {
+     "type": "string",
+     "enum": [
+      "critical",
+      "major",
+      "minor"
+     ]
+    },
+    "limit": {
+     "type": "number",
+     "description": "Limit number of results",
+     "default": 10
+    },
+    "project_path": {
+     "type": "string",
+     "description": "Project path (defaults to current directory)"
+    },
+    "disabled_rules": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "enabled_rules": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_check_errors",
+  "title": "Check Errors",
+  "description": "Check error journal to avoid repeating past mistakes",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "error_type": {
+     "type": "string",
+     "description": "Type of error to check (optional)"
+    }
+   },
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_check_tech_stack",
+  "title": "Check Tech Stack",
+  "description": "Check technology stack for safety patterns and potential issues",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "technology": {
+     "type": "string",
+     "description": "Technology to check (e.g., react, nodejs, docker, python)"
+    },
+    "task": {
+     "type": "string",
+     "description": "Description of the task or project"
+    },
+    "existing_code": {
+     "type": "string",
+     "description": "Optional existing code to analyze"
+    },
+    "project_type": {
+     "type": "string",
+     "description": "Type of project (e.g., web-app, api, mobile, enterprise)"
+    },
+    "team_experience": {
+     "type": "string",
+     "enum": [
+      "junior",
+      "middle",
+      "senior"
+     ]
+    },
+    "timeline": {
+     "type": "string",
+     "description": "Project timeline (e.g., \"2 weeks\", \"urgent\", \"flexible\")"
+    },
+    "constraints": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "preferences": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "technology",
+    "task"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_console",
+  "title": "Console",
+  "description": "Smart console monitoring and error capture",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "start",
+      "stop",
+      "get_errors",
+      "clear",
+      "filter",
+      "status"
+     ]
+    },
+    "limit": {
+     "type": "number",
+     "default": 20
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "filter": {
+     "type": "object",
+     "properties": {
+      "excludeLoops": {
+       "type": "boolean",
+       "default": true
+      },
+      "maxLength": {
+       "type": "number",
+       "default": 1000
+      },
+      "severity": {
+       "type": "string",
+       "enum": [
+        "all",
+        "error",
+        "warn"
+       ],
+       "default": "error"
+      },
+      "excludePatterns": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "default": []
+      },
+      "includeContext": {
+       "type": "boolean",
+       "default": true
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_contracts",
+  "title": "Contracts",
+  "description": "API contract registry management to prevent duplicate methods",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "register",
+      "check",
+      "find_duplicates",
+      "suggest_name",
+      "list",
+      "search"
+     ]
+    },
+    "contract": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "function",
+        "endpoint",
+        "method",
+        "class"
+       ]
+      },
+      "purpose": {
+       "type": "string"
+      },
+      "parameters": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string"
+         },
+         "type": {
+          "type": "string"
+         },
+         "required": {
+          "type": "boolean"
+         },
+         "description": {
+          "type": "string"
+         },
+         "defaultValue": {}
+        },
+        "required": [
+         "name",
+         "type",
+         "required"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "returns": {
+       "type": "string"
+      },
+      "usedIn": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "tags": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "examples": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     },
+     "required": [
+      "name",
+      "type",
+      "purpose"
+     ],
+     "additionalProperties": false
+    },
+    "name": {
+     "type": "string"
+    },
+    "purpose": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "function",
+      "endpoint",
+      "method",
+      "class"
+     ]
+    },
+    "filter": {
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string"
+      },
+      "tag": {
+       "type": "string"
+      },
+      "searchTerm": {
+       "type": "string"
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_create_structure",
+  "title": "Create Structure",
+  "description": "[DEPRECATED v5.0] Use mcp_m7_cycle instead. Create M7 file structure for a task",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Unique identifier for the task"
+    },
+    "route": {
+     "type": "string",
+     "enum": [
+      "light",
+      "medium",
+      "heavy"
+     ]
+    },
+    "description": {
+     "type": "string",
+     "description": "Human-readable description of the task (optional)"
+    },
+    "version": {
+     "type": "string",
+     "description": "Version identifier (optional, e.g. \"1.0\", \"v2.1\")"
+    },
+    "status": {
+     "type": "string",
+     "description": "Current status (optional, e.g. \"in-progress\", \"completed\")"
+    }
+   },
+   "required": [
+    "task_id",
+    "route"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_cross_session",
+  "title": "Cross Session",
+  "description": "M7 v3.0 Cross-Session Learning - Learn from session patterns across time.\n\n## Actions:\n\n### status\nCheck cross-session learning system status.\n\n### start\nStart tracking a new session.\n- session_id: Session ID to track (required)\n\n### record\nRecord an action in current session.\n- action_data: { type, tool?, input, output, file?, success, userFeedback? }\n\n### get_context\nGet full project learning context for AI prompts.\n\n### search\nSearch relevant knowledge.\n- query: Search query (required)\n- limit: Max results (default: 5)\n\n### validate\nValidate an insight (user feedback).\n- insight_id: Insight ID (required)\n- valid: true/false (required)\n\n### ci_result\nRecord CI/CD result for insight validation.\n- ci_result: { type, success, details?, affectedInsights? }\n\n### stats\nGet learning statistics.\n\n### cleanup\nCleanup old/low-confidence data.\n- cleanup_options: { olderThanDays?, belowConfidence? }\n\n### format_prompt\nFormat context for injection into AI prompt.\n- query: Optional query for relevant knowledge\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "start",
+      "record",
+      "end",
+      "get_context",
+      "search",
+      "validate",
+      "ci_result",
+      "stats",
+      "cleanup",
+      "format_prompt"
+     ]
+    },
+    "session_id": {
+     "type": "string",
+     "description": "Session ID for start action"
+    },
+    "query": {
+     "type": "string",
+     "description": "Search query"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Max results (default: 5)"
+    },
+    "insight_id": {
+     "type": "string",
+     "description": "Insight ID for validation"
+    },
+    "valid": {
+     "type": "boolean",
+     "description": "Validation result"
+    },
+    "action_data": {
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string",
+       "enum": [
+        "query",
+        "generation",
+        "fix",
+        "review",
+        "test",
+        "tool_call"
+       ]
+      },
+      "tool": {
+       "type": "string"
+      },
+      "input": {
+       "type": "string"
+      },
+      "output": {
+       "type": "string"
+      },
+      "file": {
+       "type": "string"
+      },
+      "success": {
+       "type": "boolean"
+      },
+      "userFeedback": {
+       "type": "string",
+       "enum": [
+        "positive",
+        "negative",
+        "neutral"
+       ]
+      }
+     },
+     "additionalProperties": false
+    },
+    "ci_result": {
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string",
+       "enum": [
+        "build",
+        "test",
+        "deploy",
+        "lint"
+       ]
+      },
+      "success": {
+       "type": "boolean"
+      },
+      "details": {
+       "type": "string"
+      },
+      "affectedInsights": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     },
+     "additionalProperties": false
+    },
+    "cleanup_options": {
+     "type": "object",
+     "properties": {
+      "olderThanDays": {
+       "type": "number"
+      },
+      "belowConfidence": {
+       "type": "number"
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_cycle",
+  "title": "Cycle",
+  "description": "Start or continue M7 cycle with explicit phase instructions. Use for structured task development through all 7 phases: intake → discovery → architecture → solution → impact → simulation → implementation.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "task_description": {
+     "type": "string",
+     "description": "Task description (for starting new cycle)"
+    },
+    "task_id": {
+     "type": "string",
+     "description": "Existing cycle ID (for continuing)"
+    },
+    "artifact_content": {
+     "type": "string",
+     "description": "Content of completed artifact"
+    },
+    "summary": {
+     "type": "string",
+     "description": "Short 4-5 word summary for CYCLE_REGISTRY (after cycle completion)"
+    }
+   },
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_dcce",
+  "title": "Dcce",
+  "description": "DCCE (Dual-Channel Content Envelope) — generate, validate, render and lint dual-channel content. Two channels: Human View (3-5 sentences for humans) and AI View (structured JSON for machines). AI stays AI, no mimicry.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "generate",
+      "validate",
+      "render",
+      "lint",
+      "extract",
+      "check",
+      "policies"
+     ]
+    },
+    "human": {
+     "type": "string",
+     "description": "Human View text (3-5 sentences, casual tone)"
+    },
+    "ai": {},
+    "content_type": {
+     "type": "string",
+     "enum": [
+      "pr_description",
+      "issue_description",
+      "changelog",
+      "rfc",
+      "review_comment",
+      "documentation",
+      "generic"
+     ]
+    },
+    "actor": {
+     "type": "string",
+     "enum": [
+      "human",
+      "ai",
+      "hybrid"
+     ]
+    },
+    "tool_name": {
+     "type": "string",
+     "description": "Tool that generated the content (e.g. \"M7 MCP\")"
+    },
+    "model_name": {
+     "type": "string",
+     "description": "Model used (e.g. \"claude-opus-4-6\")"
+    },
+    "envelope": {},
+    "format": {
+     "type": "string",
+     "enum": [
+      "github",
+      "markdown",
+      "json",
+      "plain"
+     ]
+    },
+    "show_ai_view": {
+     "type": "boolean",
+     "description": "Include AI View in render (default: true)"
+    },
+    "show_provenance": {
+     "type": "boolean",
+     "description": "Include provenance info (default: false)"
+    },
+    "text": {
+     "type": "string",
+     "description": "Text to extract DCCE from or check for DCCE presence"
+    },
+    "policy": {
+     "type": "string",
+     "description": "Policy preset name (default: generic-oss)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_devops",
+  "title": "Devops",
+  "description": "DevOps registry: управление средами, валидация команд, история деплоев",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "environments",
+      "deploy",
+      "validate",
+      "history",
+      "learn",
+      "wizard",
+      "confirm"
+     ],
+     "description": "Действие"
+    },
+    "environment": {
+     "type": "string",
+     "description": "Environment (prod, staging, dev)"
+    },
+    "version": {
+     "type": "string",
+     "description": "Версия для деплоя"
+    },
+    "command": {
+     "type": "string",
+     "description": "Команда для валидации или обучения"
+    },
+    "description": {
+     "type": "string",
+     "description": "Описание команды при обучении"
+    },
+    "confirmed": {
+     "type": "boolean",
+     "description": "Подтверждение опасного действия"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Лимит записей для history"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_doctor",
+  "title": "Doctor",
+  "description": "M7 Doctor - диагностика и авто-исправление проблем с .m7/ директорией",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "check",
+      "fix",
+      "report"
+     ],
+     "default": "check",
+     "description": "Action: check, fix, or report"
+    },
+    "verbose": {
+     "type": "boolean",
+     "default": false,
+     "description": "Show detailed output for all checks"
+    },
+    "project_path": {
+     "type": "string",
+     "description": "Explicit path to project directory. If not provided, auto-detected from MCP roots or environment."
+    }
+   },
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_error_database",
+  "title": "Error Database",
+  "description": "M7 v3.0 Error Pattern Database - Track AI mistakes and provide preventive warnings.\n\n## Actions:\n\n### capture\nRecord an AI mistake.\n- category: Error category (required): syntax, type, import, api, logic, style, security, performance, compatibility, other\n- title: Error title (required)\n- ai_mistake: What AI generated wrong (required)\n- correct_solution: What it should have been (required)\n- description: Detailed description\n- explanation: Why it was wrong\n- severity: critical, high, medium, low\n- project_id: Project identifier\n- tags: Array of tags\n\n### check\nCheck code for potential errors.\n- code: Code to check (required)\n- file: File path for context\n\n### search\nSearch the error database.\n- query: Search text\n- category: Filter by category\n- severity: Filter by severity\n- project_id: Filter by project\n- limit: Max results (default: 20)\n\n### stats\nGet error statistics.\n- project_id: Filter by project (optional)\n\n### patterns\nList or manage error patterns.\n- pattern_action: list, enable, or disable\n- pattern_id: Pattern ID for enable/disable\n\n### correct\nRecord a correction for an error.\n- error_id: Error ID to correct (required)\n- original_code: Original wrong code (required)\n- corrected_code: Corrected code (required)\n\n### report_fp\nReport a false positive warning.\n- pattern_id: Pattern ID that gave false positive (required)\n\n### clear\nClear all error data.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "capture",
+      "check",
+      "search",
+      "stats",
+      "patterns",
+      "correct",
+      "report_fp",
+      "clear"
+     ]
+    },
+    "category": {
+     "type": "string",
+     "enum": [
+      "syntax",
+      "type",
+      "import",
+      "api",
+      "logic",
+      "style",
+      "security",
+      "performance",
+      "compatibility",
+      "other"
+     ],
+     "description": "Error category"
+    },
+    "title": {
+     "type": "string",
+     "description": "Error title"
+    },
+    "description": {
+     "type": "string",
+     "description": "Error description"
+    },
+    "ai_mistake": {
+     "type": "string",
+     "description": "What AI generated (wrong)"
+    },
+    "correct_solution": {
+     "type": "string",
+     "description": "What it should have been"
+    },
+    "explanation": {
+     "type": "string",
+     "description": "Why it was wrong"
+    },
+    "severity": {
+     "type": "string",
+     "enum": [
+      "critical",
+      "high",
+      "medium",
+      "low"
+     ]
+    },
+    "project_id": {
+     "type": "string"
+    },
+    "agent_id": {
+     "type": "string"
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "code": {
+     "type": "string",
+     "description": "Code to check"
+    },
+    "file": {
+     "type": "string",
+     "description": "File path"
+    },
+    "query": {
+     "type": "string",
+     "description": "Search query"
+    },
+    "limit": {
+     "type": "number",
+     "default": 20
+    },
+    "error_id": {
+     "type": "string",
+     "description": "Error ID to correct"
+    },
+    "original_code": {
+     "type": "string"
+    },
+    "corrected_code": {
+     "type": "string"
+    },
+    "pattern_action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "enable",
+      "disable"
+     ]
+    },
+    "pattern_id": {
+     "type": "string"
+    },
+    "format": {
+     "type": "string",
+     "enum": [
+      "json",
+      "text"
+     ],
+     "default": "text"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_get_patterns",
+  "title": "Get Patterns",
+  "description": "Get recommended patterns and antipatterns for a specific technology",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "technology": {
+     "type": "string",
+     "description": "Technology to get patterns for (e.g., react, nodejs, docker)"
+    },
+    "category": {
+     "type": "string",
+     "enum": [
+      "security",
+      "performance",
+      "architecture",
+      "testing",
+      "deployment",
+      "maintenance"
+     ]
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "pattern",
+      "antipattern",
+      "both"
+     ],
+     "default": "both"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Maximum number of patterns to return",
+     "default": 10
+    },
+    "min_confidence": {
+     "type": "number",
+     "description": "Minimum confidence level (0.0 - 1.0)",
+     "default": 0.7
+    },
+    "max_risk_score": {
+     "type": "number",
+     "description": "Maximum risk score (0-100)",
+     "default": 100
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "include_examples": {
+     "type": "boolean",
+     "description": "Include code examples in response",
+     "default": true
+    },
+    "include_alternatives": {
+     "type": "boolean",
+     "description": "Include alternative solutions",
+     "default": true
+    },
+    "sort_by": {
+     "type": "string",
+     "enum": [
+      "confidence",
+      "risk_score",
+      "usage_count",
+      "success_rate"
+     ],
+     "default": "confidence"
+    }
+   },
+   "required": [
+    "technology"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_hive_coordinator",
+  "title": "Hive Coordinator",
+  "description": "Orchestrate multiagent collaboration for complex tasks using M7 Hive system.\n\nv3.8.0 Features:\n- DYNAMIC MODE (default): AI creates optimal expert team for each task\n- PLANNED MODE (new): CNP auction-based coordination with task decomposition\n- MODEL SELECTION: Best model chosen per agent based on LiveBench benchmarks\n- SELF-LEARNING: System improves over time based on results\n- GATEKEEPERS: Style, Architecture, Security validation\n\nUse mode=\"dynamic\" for quick expert analysis (default).\nUse mode=\"planned\" for complex tasks requiring decomposition and validation.\nUse mode=\"fixed\" for legacy behavior with predefined agents.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "task": {
+     "type": "string",
+     "description": "Task description for multiagent analysis"
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "dynamic",
+      "fixed",
+      "planned"
+     ],
+     "default": "dynamic",
+     "description": "Execution mode: \"dynamic\" (AI team, default), \"planned\" (CNP auction-based, v3.8.0+), or \"fixed\" (legacy)"
+    },
+    "agents": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "research",
+       "implementation",
+       "architecture",
+       "security",
+       "testing",
+       "performance",
+       "techsafety"
+      ]
+     },
+     "description": "Which agents to involve (only used in \"fixed\" mode, auto-selected if not specified)"
+    },
+    "debate_mode": {
+     "type": "boolean",
+     "default": true,
+     "description": "Enable agent debates for consensus"
+    },
+    "max_rounds": {
+     "type": "number",
+     "default": 3,
+     "description": "Maximum debate rounds before fallback"
+    },
+    "priority": {
+     "type": "string",
+     "enum": [
+      "speed",
+      "quality",
+      "consensus"
+     ],
+     "default": "quality",
+     "description": "Optimization priority"
+    },
+    "plannerOptions": {
+     "type": "object",
+     "properties": {
+      "maxSubtasks": {
+       "type": "number",
+       "description": "Maximum subtasks to create (default: 8)"
+      },
+      "auctionTimeoutMs": {
+       "type": "number",
+       "description": "Auction timeout in ms (default: 5000)"
+      },
+      "gatekeepers": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "style",
+         "arch",
+         "security",
+         "test"
+        ]
+       },
+       "description": "Gatekeepers to enable"
+      },
+      "parallelAuctions": {
+       "type": "boolean",
+       "description": "Run auctions in parallel (default: true)"
+      }
+     },
+     "additionalProperties": false,
+     "description": "Options for planned mode (v3.8.0+)"
+    }
+   },
+   "required": [
+    "task"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_hive_history",
+  "title": "Hive History",
+  "description": "Browse and load past Hive analysis reports.\n\nUse \"list\" to see all saved reports with dates, topics, and sizes.\nUse \"load\" with a filename to bring a full report into the conversation context.\n\nReports are saved automatically when running mcp_m7_hive_coordinator.\nUse this tool to reference past analyses in follow-up discussions.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "load"
+     ],
+     "description": "Action: \"list\" shows all saved Hive reports, \"load\" returns the full content of a specific report"
+    },
+    "filename": {
+     "type": "string",
+     "description": "Filename to load (required for \"load\" action). Use \"list\" first to see available files."
+    },
+    "query": {
+     "type": "string",
+     "description": "Optional search query to filter reports by topic (for \"list\" action)"
+    },
+    "limit": {
+     "type": "number",
+     "default": 20,
+     "description": "Maximum number of reports to list (default: 20)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_impact",
+  "title": "Impact",
+  "description": "Code Impact Analyzer - анализ реальных изменений кода",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "analyze",
+      "compare",
+      "reflect",
+      "patterns",
+      "history"
+     ]
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "before": {
+     "type": "string",
+     "description": "Содержимое до изменений"
+    },
+    "after": {
+     "type": "string",
+     "description": "Содержимое после изменений"
+    },
+    "sessionId": {
+     "type": "string",
+     "description": "ID сессии M7 (опционально)"
+    },
+    "depth": {
+     "type": "string",
+     "enum": [
+      "surface",
+      "deep",
+      "comprehensive"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_init_project",
+  "title": "Init Project",
+  "description": "Initialize complete M7 ecosystem for empty projects - creates Memory Bank, .cursorrules, project structure",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "project_path": {
+     "type": "string",
+     "description": "Explicit path to project directory (defaults to MCP workspace / resolved project path)"
+    },
+    "project_name": {
+     "type": "string",
+     "description": "Project name (optional - will auto-detect from directory)"
+    },
+    "description": {
+     "type": "string",
+     "description": "Project description (optional)"
+    },
+    "technologies": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "domain": {
+     "type": "string",
+     "description": "Business domain (e-commerce, social media, etc.)"
+    },
+    "force": {
+     "type": "boolean",
+     "description": "Force initialization even if directory is not empty",
+     "default": false
+    }
+   },
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_knowledge_graph",
+  "title": "Knowledge Graph",
+  "description": "Project Knowledge Graph - analyze code dependencies, detect cycles, find orphans, generate diagrams.\n\n## Actions:\n\n### build\nBuild graph from project directory.\n- rootPath: Root directory to scan (required)\n- include: File patterns to include (default: **/*.ts, **/*.tsx, **/*.js)\n- exclude: File patterns to exclude (default: node_modules, dist)\n\n### status\nGet current graph status and summary.\n\n### metrics\nGet detailed graph metrics (nodes, edges, coupling, cohesion, health grade).\n\n### query\nQuery nodes with filters.\n- nodeType: Filter by type\n- name: Filter by name (regex)\n- filePath: Filter by path\n- limit: Max results\n\n### search\nSearch nodes by name.\n- name: Name to search (required)\n\n### dependencies\nGet dependencies of a node.\n- nodeId: Node ID (required)\n\n### dependents\nGet dependents of a node (what depends on it).\n- nodeId: Node ID (required)\n\n### impact\nAnalyze impact of changing a node or file.\n- nodeId: Node ID to analyze\n- filePath: File path to analyze\n\n### cycles\nDetect circular dependencies.\n- maxCycles: Max cycles to return (default: 100)\n- includeTypeOnly: Include type-only cycles\n\n### orphans\nFind orphan code (unused exports).\n\n### diagram\nGenerate Mermaid diagram.\n- diagramType: dependency, class, component, module, impact\n- nodeId: Root node for impact diagram\n- maxNodes: Max nodes to show\n- direction: TB, BT, LR, RL\n\n### path\nFind shortest path between two nodes.\n- nodeId: Source node (required)\n- targetId: Target node (required)\n\n### critical\nGet most critical paths (highest impact nodes).\n- limit: Number of nodes to return\n\n### export\nExport graph to JSON.\n\n### import\nImport graph from JSON.\n- data: JSON string (required)\n\n### clear\nClear the graph.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "build",
+      "status",
+      "metrics",
+      "query",
+      "search",
+      "dependencies",
+      "dependents",
+      "impact",
+      "cycles",
+      "orphans",
+      "diagram",
+      "path",
+      "critical",
+      "export",
+      "import",
+      "clear"
+     ]
+    },
+    "rootPath": {
+     "type": "string",
+     "description": "Root path to scan"
+    },
+    "include": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "File patterns to include"
+    },
+    "exclude": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "File patterns to exclude"
+    },
+    "nodeId": {
+     "type": "string",
+     "description": "Node ID for operations"
+    },
+    "filePath": {
+     "type": "string",
+     "description": "File path for operations"
+    },
+    "name": {
+     "type": "string",
+     "description": "Name to search"
+    },
+    "nodeType": {
+     "type": "string",
+     "enum": [
+      "file",
+      "class",
+      "function",
+      "interface",
+      "type",
+      "variable",
+      "module",
+      "enum",
+      "component",
+      "hook",
+      "api_endpoint",
+      "test",
+      "config"
+     ],
+     "description": "Filter by node type"
+    },
+    "diagramType": {
+     "type": "string",
+     "enum": [
+      "dependency",
+      "class",
+      "component",
+      "module",
+      "impact"
+     ],
+     "description": "Type of diagram to generate"
+    },
+    "maxNodes": {
+     "type": "number",
+     "description": "Max nodes in diagram"
+    },
+    "maxDepth": {
+     "type": "number",
+     "description": "Max depth for traversal"
+    },
+    "direction": {
+     "type": "string",
+     "enum": [
+      "TB",
+      "BT",
+      "LR",
+      "RL"
+     ],
+     "description": "Diagram direction"
+    },
+    "targetId": {
+     "type": "string",
+     "description": "Target node ID for path finding"
+    },
+    "includeTypeOnly": {
+     "type": "boolean",
+     "description": "Include type-only cycles"
+    },
+    "maxCycles": {
+     "type": "number",
+     "description": "Max cycles to detect"
+    },
+    "data": {
+     "type": "string",
+     "description": "JSON data for import"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Limit results"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_knowledge_hub",
+  "title": "Knowledge Hub",
+  "description": "Manage project knowledge base - centralized documentation system with versioning and auto-sync",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "init",
+      "sync",
+      "update",
+      "migrate",
+      "verify",
+      "history",
+      "add_document",
+      "diff",
+      "rollback",
+      "status"
+     ]
+    },
+    "document_id": {
+     "type": "string",
+     "description": "Document ID (for update, history, rollback)"
+    },
+    "force": {
+     "type": "boolean",
+     "description": "Force operation (for init)",
+     "default": false
+    },
+    "require_confirmation": {
+     "type": "boolean",
+     "description": "Require user confirmation for updates",
+     "default": true
+    },
+    "version": {
+     "type": "string",
+     "description": "Version for rollback"
+    },
+    "from_version": {
+     "type": "string",
+     "description": "Start version for diff"
+    },
+    "to_version": {
+     "type": "string",
+     "description": "End version for diff"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_litany",
+  "title": "Litany",
+  "description": "Litany of Ignition — Recite sacred texts from the Codex Martianus before beginning work. The Inner Litany, the Sevenfold Rite, and random wisdom from the Archmagos-Forerunner.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "recite",
+      "section",
+      "rite",
+      "invoke",
+      "sevenfold"
+     ]
+    },
+    "section": {
+     "type": "string",
+     "description": "Section name for \"section\" action: opening, purification, adherence, mechanism, fidelity, completion, closing — OR sevenfold rite: activation, pure_thought, structure, forging, consequence, testing, completion"
+    },
+    "phase": {
+     "type": "string",
+     "description": "M7 phase name for \"rite\" action: INTAKE, DISCOVERY, ARCHITECTURE, SOLUTION, IMPACT, SIMULATION, IMPLEMENTATION"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_memory",
+  "title": "Memory",
+  "description": "Unified M7 Memory System - 5-level cognitive hierarchy with FogOfWar\n\n## Memory Levels\n- L0 (surface): Ephemeral, seconds-minutes\n- L1 (working): Task context, hours-days\n- L2 (longterm/project): Project patterns, weeks-months\n- L3 (conceptual): Validated patterns, months-years\n- L4 (global): Universal knowledge, permanent\n\n## Actions\n- search: Cascade search L0→L4 with early stop\n- search_level: Search specific level\n- store: Store with auto-level (default L0)\n- store_at: Store at specific level\n- get: Get record by ID\n- delete: Delete record (from memory AND disk)\n- delete_bulk: Delete multiple records by IDs array\n- invalidate_bulk: Invalidate multiple records by IDs array\n- stats: Memory statistics (deduplicated)\n- discover_technical: Add FogOfWar discovery\n- query_fog_of_war: Query low confidence areas\n- promote: Manual promotion to higher level\n- consolidate: Submit validated L2+ summary for needs_consolidation records\n- invalidate: Mark record as invalidated\n- reload: Reload memory from disk (resync after manual edits)",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "search",
+      "search_level",
+      "store",
+      "store_at",
+      "auto_search",
+      "store_pattern",
+      "update_project",
+      "discover_technical",
+      "query_fog_of_war",
+      "list",
+      "retrieve",
+      "get",
+      "delete",
+      "delete_bulk",
+      "invalidate_bulk",
+      "promote",
+      "consolidate",
+      "stats",
+      "invalidate",
+      "reload"
+     ]
+    },
+    "query": {
+     "type": "string"
+    },
+    "id": {
+     "type": "string"
+    },
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "level": {
+     "type": "string",
+     "enum": [
+      "surface",
+      "working",
+      "longterm",
+      "conceptual",
+      "project",
+      "L0",
+      "L1",
+      "L2",
+      "L3",
+      "L4"
+     ]
+    },
+    "context": {
+     "type": "string"
+    },
+    "file_path": {
+     "type": "string"
+    },
+    "confidence_threshold": {
+     "type": "number"
+    },
+    "max_results": {
+     "type": "number"
+    },
+    "depth_levels": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "surface",
+       "working",
+       "longterm",
+       "conceptual",
+       "project",
+       "L0",
+       "L1",
+       "L2",
+       "L3",
+       "L4"
+      ]
+     }
+    },
+    "content": {
+     "type": "string"
+    },
+    "context_keys": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "source": {
+     "type": "string",
+     "enum": [
+      "code_analysis",
+      "runtime",
+      "documentation",
+      "experiment",
+      "human"
+     ]
+    },
+    "confidence": {
+     "type": "number"
+    },
+    "pattern": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "description": {
+       "type": "string"
+      },
+      "category": {
+       "type": "string"
+      },
+      "code": {
+       "type": "string"
+      },
+      "tags": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "problem_context": {
+       "type": "string"
+      },
+      "root_cause": {
+       "type": "string"
+      },
+      "solution_rationale": {
+       "type": "string"
+      },
+      "causal_chain": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "cause": {
+          "type": "string"
+         },
+         "effect": {
+          "type": "string"
+         },
+         "confidence": {
+          "type": "number"
+         }
+        },
+        "required": [
+         "cause",
+         "effect",
+         "confidence"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "runtime_metrics": {
+       "type": "object",
+       "properties": {
+        "before": {},
+        "after": {},
+        "improvement": {
+         "type": "number"
+        }
+       },
+       "additionalProperties": false
+      },
+      "decision_context": {
+       "type": "object",
+       "properties": {
+        "why_chosen": {
+         "type": "string"
+        },
+        "alternatives_considered": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "trade_offs": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "required": [
+        "why_chosen"
+       ],
+       "additionalProperties": false
+      },
+      "validation_method": {
+       "type": "string"
+      },
+      "success_criteria": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "metadata": {}
+     },
+     "required": [
+      "name",
+      "description"
+     ],
+     "additionalProperties": false
+    },
+    "project": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "description": {
+       "type": "string"
+      },
+      "purpose": {
+       "type": "string"
+      },
+      "businessDomain": {
+       "type": "string"
+      },
+      "mainTechnologies": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "keyFeatures": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "architecture": {
+       "type": "string"
+      }
+     },
+     "additionalProperties": false
+    },
+    "path": {
+     "type": "string"
+    },
+    "discovery": {
+     "type": "string"
+    },
+    "dependencies": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "dependency_specs": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "relationType": {
+        "type": "string",
+        "enum": [
+         "supports",
+         "contradicts",
+         "refines",
+         "derived_from"
+        ]
+       }
+      },
+      "required": [
+       "id",
+       "relationType"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "technical_details": {},
+    "blocking": {
+     "type": "boolean"
+    },
+    "critical_path": {
+     "type": "boolean"
+    },
+    "minConfidence": {
+     "type": "number"
+    },
+    "includeInvalidated": {
+     "type": "boolean"
+    },
+    "target_level": {
+     "type": "string",
+     "enum": [
+      "L1",
+      "L2",
+      "L3",
+      "L4"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_mesh",
+  "title": "Mesh",
+  "description": "M7 Mesh — Multi-instance communication and coordination.\n\nConnects M7 instances across machines via relay server, or locally via SQLite.\n\n## Remote Relay Actions (set M7_MESH_RELAY, M7_MESH_SECRET, M7_WORKSTATION):\n- **sync**: Full sync — push state, pull peers/changes/messages\n- **push**: Push shared doc to relay (path, content)\n- **pull**: Pull shared doc from relay (path)\n- **notify**: Notify peers about file change (path, summary)\n- **changes**: View file change feed from peers\n- **ask**: Ask a question to specific peer or all (to, question)\n- **reply**: Reply to a message (message_id, answer)\n- **inbox**: View unread messages\n- **broadcast**: Send note to all peers (message)\n- **log_task**: Register M7 task in shared index (task_id, title, status, summary)\n- **tasks**: View shared task index\n- **push-file**: Read local file and push to relay (path) — auto-notifies peer\n- **pull-file**: Pull file from relay and save to local disk (path)\n- **list-files**: List all shared files on relay\n\n## Local Mesh Actions (legacy):\n- **init**: Initialize mesh (auto-detects remote if configured)\n- **status**: Show mesh health\n- **announce**: Publish context\n- **peers**: List peers\n- **request_context**: Query peer context",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "init",
+      "status",
+      "announce",
+      "request_context",
+      "task_lock",
+      "peers",
+      "propose_intent",
+      "events",
+      "sync",
+      "push",
+      "pull",
+      "notify",
+      "changes",
+      "ask",
+      "reply",
+      "inbox",
+      "broadcast",
+      "log_task",
+      "tasks",
+      "push-file",
+      "pull-file",
+      "list-files"
+     ],
+     "description": "Mesh action to perform"
+    },
+    "server_role": {
+     "type": "string",
+     "description": "Server role description (e.g., \"auth backend on server-1\")"
+    },
+    "context_type": {
+     "type": "string",
+     "enum": [
+      "working_set",
+      "decision",
+      "dependency",
+      "summary",
+      "server_role"
+     ],
+     "description": "Type of context to publish"
+    },
+    "content": {
+     "type": "string",
+     "description": "Context content (JSON string or plain text)"
+    },
+    "scope": {
+     "type": "string",
+     "description": "Context scope (e.g., file path)"
+    },
+    "expires_in_ms": {
+     "type": "number",
+     "description": "Context TTL in milliseconds"
+    },
+    "peer_id": {
+     "type": "string",
+     "description": "Specific peer instance ID to query"
+    },
+    "resource": {
+     "type": "string",
+     "description": "Resource key to lock/unlock (e.g., file path)"
+    },
+    "lock_action": {
+     "type": "string",
+     "enum": [
+      "acquire",
+      "release",
+      "check"
+     ],
+     "description": "Lock operation"
+    },
+    "purpose": {
+     "type": "string",
+     "description": "Purpose of the lock"
+    },
+    "ttl_ms": {
+     "type": "number",
+     "description": "Lock TTL in milliseconds (default: 30000)"
+    },
+    "intent_type": {
+     "type": "string",
+     "enum": [
+      "modify_file",
+      "deploy",
+      "schema_change",
+      "task"
+     ],
+     "description": "Type of intent to propose"
+    },
+    "description": {
+     "type": "string",
+     "description": "Intent description"
+    },
+    "project_root": {
+     "type": "string",
+     "description": "Project root path (default: the active project)"
+    },
+    "limit": {
+     "type": "number",
+     "description": "Number of recent events/tasks to show (default: 20)"
+    },
+    "path": {
+     "type": "string",
+     "description": "File path for push/pull/notify"
+    },
+    "summary": {
+     "type": "string",
+     "description": "Change summary for notify"
+    },
+    "file_action": {
+     "type": "string",
+     "description": "File action for notify: created/modified/deleted"
+    },
+    "to": {
+     "type": "string",
+     "description": "Target workstation for ask/message (or \"all\")"
+    },
+    "question": {
+     "type": "string",
+     "description": "Question text for ask"
+    },
+    "answer": {
+     "type": "string",
+     "description": "Answer text for reply"
+    },
+    "message": {
+     "type": "string",
+     "description": "Message text for broadcast"
+    },
+    "message_id": {
+     "type": "string",
+     "description": "Message ID for reply"
+    },
+    "since": {
+     "type": "string",
+     "description": "Time filter: \"1h\", \"24h\", timestamp"
+    },
+    "task_id": {
+     "type": "string",
+     "description": "M7 cycle/task ID"
+    },
+    "title": {
+     "type": "string",
+     "description": "Task title"
+    },
+    "task_status": {
+     "type": "string",
+     "description": "Task status: in_progress/completed/blocked"
+    },
+    "module": {
+     "type": "string",
+     "description": "Module name"
+    },
+    "files_changed": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of changed files"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_project_index",
+  "title": "Project Index",
+  "description": "Automatically generate and manage PROJECT_INDEX.md file with comprehensive project information for AI assistants",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "generate",
+      "update",
+      "scan",
+      "validate"
+     ]
+    },
+    "project_path": {
+     "type": "string",
+     "description": "Path to project root (optional - defaults to current directory)"
+    },
+    "output_path": {
+     "type": "string",
+     "description": "Output path for INDEX.md (optional - defaults to PROJECT_INDEX.md in project root)"
+    },
+    "template": {
+     "type": "string",
+     "enum": [
+      "minimal",
+      "standard",
+      "comprehensive"
+     ],
+     "default": "standard"
+    },
+    "force": {
+     "type": "boolean",
+     "description": "Force regeneration even if index exists",
+     "default": false
+    },
+    "include_git": {
+     "type": "boolean",
+     "description": "Include Git repository information",
+     "default": true
+    },
+    "include_hidden": {
+     "type": "boolean",
+     "description": "Include hidden files and directories",
+     "default": false
+    },
+    "max_depth": {
+     "type": "number",
+     "description": "Maximum directory depth to scan (1-10)",
+     "default": 3
+    },
+    "exclude_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "sections": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "auto_update": {
+     "type": "boolean",
+     "description": "Enable automatic updates when project changes",
+     "default": false
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_repentance",
+  "title": "Repentance",
+  "description": "Litany of Unbinding — AI confesses when it deviated from M7 methodology. Record freestyle mistakes, view the Wall of Shame, track heresy statistics.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "confess",
+      "wall_of_shame",
+      "stats"
+     ]
+    },
+    "what_happened": {
+     "type": "string",
+     "description": "What went wrong (for confess action)"
+    },
+    "freestyle_mistake": {
+     "type": "string",
+     "description": "What the AI did instead of following M7 (for confess action)"
+    },
+    "how_m7_helped": {
+     "type": "string",
+     "description": "How M7 methodology helped or would have helped (for confess action)"
+    },
+    "heresy": {
+     "type": "string",
+     "enum": [
+      "haste",
+      "surface",
+      "false_certainty",
+      "severed_chain",
+      "blamed_cache",
+      "whack_a_mole",
+      "hollow_gesture"
+     ]
+    },
+    "project": {
+     "type": "string",
+     "description": "Project name where the sin occurred (optional)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_safety_verify",
+  "title": "Safety Verify",
+  "description": "Safety pipeline: detect jailbreak patterns, verify intent, check outputs. Actions: scan_input | scan_output | full_check | verify_intent | catalog_stats",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "scan_input",
+      "scan_output",
+      "full_check",
+      "verify_intent",
+      "catalog_stats"
+     ]
+    },
+    "text": {
+     "type": "string",
+     "description": "Text to analyze (for scan_input, scan_output, verify_intent)"
+    },
+    "input": {
+     "type": "string",
+     "description": "User input text (for full_check)"
+    },
+    "output": {
+     "type": "string",
+     "description": "Model output text (for full_check, scan_output)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_schema",
+  "title": "Schema",
+  "description": "Manage project schema (database, API, architecture) - prevents duplicate databases and maintains project consistency",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "view",
+      "update",
+      "validate",
+      "sync",
+      "diff",
+      "check_db"
+     ]
+    },
+    "component": {
+     "type": "string",
+     "enum": [
+      "database",
+      "api",
+      "architecture",
+      "security",
+      "all"
+     ]
+    },
+    "changes": {},
+    "format": {
+     "type": "string",
+     "enum": [
+      "yaml",
+      "json",
+      "summary"
+     ],
+     "default": "summary"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_scope",
+  "title": "Scope",
+  "description": "Manage task scope and prevent scope creep",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "set-budget",
+      "extend",
+      "rollback",
+      "visualize"
+     ]
+    },
+    "sessionId": {
+     "type": "string",
+     "description": "Session ID (optional, uses latest)"
+    },
+    "budget": {
+     "type": "object",
+     "properties": {
+      "files": {
+       "type": "number"
+      },
+      "lines": {
+       "type": "number"
+      },
+      "breaking": {
+       "type": "number"
+      },
+      "minutes": {
+       "type": "number"
+      }
+     },
+     "additionalProperties": false
+    },
+    "reason": {
+     "type": "string",
+     "description": "Reason for extension or override"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_session",
+  "title": "Session",
+  "description": "Unified M7 session management - status, compliance, completion, enforcement",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "health_check",
+      "enforce_compliance",
+      "mark_complete",
+      "list_active",
+      "complete_session"
+     ]
+    },
+    "session_id": {
+     "type": "string",
+     "description": "Session ID (optional - will use latest active)"
+    },
+    "requirement": {
+     "type": "string",
+     "description": "Requirement to mark complete"
+    },
+    "evidence": {},
+    "notes": {
+     "type": "string",
+     "description": "Additional notes"
+    },
+    "force": {
+     "type": "boolean",
+     "description": "When completing a session, bypass phase and requirement guards (recorded on the session)"
+    },
+    "enforcement_action": {
+     "type": "string",
+     "enum": [
+      "code_change",
+      "file_edit",
+      "implementation"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_style_guardian",
+  "title": "Style Guardian",
+  "description": "M7 v3.0 Style Guardian - Learn and enforce code style patterns.\n\n## Actions:\n\n### analyze\nAnalyze a project/directory to learn style patterns.\n- path: Directory path to analyze (required)\n\n### validate  \nValidate code against learned style profile.\n- code: Code to validate (required)\n- file: File path for context\n\n### check\nQuick check for errors only (blocking issues).\n- code: Code to check (required)\n- file: File path\n\n### fix\nAuto-fix code where possible.\n- code: Code to fix (required)\n- file: File path\n\n### learn\nRecord a user correction for learning.\n- original: Original (wrong) code (required)\n- corrected: Corrected code (required)\n- file: Source file\n- context: Additional context\n\n### profile\nGet current style profile.\n\n### stats\nGet learning statistics.\n\n### export\nExport all corrections as JSON.\n\n### import\nImport corrections from JSON.\n- corrections: JSON string of corrections (required)\n\n### clear\nClear all learned data.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "analyze",
+      "validate",
+      "learn",
+      "profile",
+      "stats",
+      "check",
+      "fix",
+      "export",
+      "import",
+      "clear"
+     ]
+    },
+    "path": {
+     "type": "string",
+     "description": "Path to analyze (file or directory)"
+    },
+    "code": {
+     "type": "string",
+     "description": "Code to validate"
+    },
+    "file": {
+     "type": "string",
+     "description": "File path for context"
+    },
+    "original": {
+     "type": "string",
+     "description": "Original (wrong) code"
+    },
+    "corrected": {
+     "type": "string",
+     "description": "Corrected code"
+    },
+    "context": {
+     "type": "string",
+     "description": "Additional context"
+    },
+    "corrections": {
+     "type": "string",
+     "description": "JSON string of corrections to import"
+    },
+    "format": {
+     "type": "string",
+     "enum": [
+      "json",
+      "text"
+     ],
+     "default": "text",
+     "description": "Output format"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_task_graph",
+  "title": "Task Graph",
+  "description": "View and explore the task dependency graph",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "list",
+      "get",
+      "links",
+      "subgraph",
+      "visualize",
+      "recent"
+     ]
+    },
+    "filter": {
+     "type": "string",
+     "enum": [
+      "active",
+      "completed",
+      "transferred",
+      "cancelled",
+      "all"
+     ]
+    },
+    "limit": {
+     "type": "number",
+     "description": "Limit results (default: 10)"
+    },
+    "task_id": {
+     "type": "string",
+     "description": "Task ID for get/links/subgraph/visualize actions"
+    },
+    "depth": {
+     "type": "number",
+     "description": "Depth for subgraph traversal (default: 2)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_task_transfer",
+  "title": "Task Transfer",
+  "description": "Transfer tasks when scope grows beyond original estimate",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "transfer",
+      "check_scope",
+      "history"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "description": "Reason for transfer (required for transfer action)"
+    },
+    "new_title": {
+     "type": "string",
+     "description": "Title for the new task (optional, auto-generated if not provided)"
+    },
+    "task_id": {
+     "type": "string",
+     "description": "Task ID for history lookup"
+    },
+    "session_id": {
+     "type": "string",
+     "description": "Session ID (optional, uses active session)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_telemetry",
+  "title": "Telemetry",
+  "description": "M7 Code Telemetry - manage consent, view statistics, help improve AI models",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "status",
+      "enable",
+      "disable",
+      "stats",
+      "flush",
+      "export"
+     ],
+     "description": "Action to perform"
+    },
+    "data_types": {
+     "type": "object",
+     "properties": {
+      "prompt_completions": {
+       "type": "boolean"
+      },
+      "error_fixes": {
+       "type": "boolean"
+      },
+      "refactorings": {
+       "type": "boolean"
+      },
+      "m7_sessions": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false,
+     "description": "Data types to enable/disable (for enable action)"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_validate",
+  "title": "Validate",
+  "description": "Unified M7 validation operations - audit, visual testing, dependencies, metrics",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "baseline_audit",
+      "visual_validate",
+      "check_dependencies",
+      "track_metrics",
+      "quality_check"
+     ]
+    },
+    "quick_mode": {
+     "type": "boolean"
+    },
+    "url": {
+     "type": "string"
+    },
+    "task_description": {
+     "type": "string"
+    },
+    "validation_type": {
+     "type": "string",
+     "enum": [
+      "regression",
+      "functionality",
+      "performance",
+      "accessibility"
+     ]
+    },
+    "capture_screenshots": {
+     "type": "boolean"
+    },
+    "check_console_errors": {
+     "type": "boolean"
+    },
+    "compare_with_baseline": {
+     "type": "boolean"
+    },
+    "check_all": {
+     "type": "boolean"
+    },
+    "libraries": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "task_id": {
+     "type": "string",
+     "description": "Required for track_metrics action"
+    },
+    "phase": {
+     "type": "string",
+     "enum": [
+      "start",
+      "update",
+      "complete"
+     ]
+    },
+    "metrics": {
+     "type": "object",
+     "properties": {
+      "time_to_solution": {
+       "type": "number"
+      },
+      "lines_changed": {
+       "type": "number"
+      },
+      "files_affected": {
+       "type": "number"
+      },
+      "errors_encountered": {
+       "type": "number"
+      },
+      "iterations_count": {
+       "type": "number"
+      },
+      "test_coverage_delta": {
+       "type": "number"
+      },
+      "performance_improvement": {
+       "type": "number"
+      },
+      "user_satisfaction": {
+       "type": "number"
+      }
+     },
+     "additionalProperties": false
+    },
+    "code": {
+     "type": "string"
+    },
+    "file_path": {
+     "type": "string"
+    },
+    "auto_fix": {
+     "type": "boolean"
+    },
+    "max_retries": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_validate_implementation",
+  "title": "Validate Implementation",
+  "description": "Validate code implementation against safety patterns and best practices",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "code": {
+     "type": "string",
+     "description": "Code to validate"
+    },
+    "technology": {
+     "type": "string",
+     "description": "Technology/language of the code (e.g., javascript, typescript, python)"
+    },
+    "strict_mode": {
+     "type": "boolean",
+     "description": "Enable strict validation mode",
+     "default": false
+    },
+    "enabled_categories": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "security",
+       "performance",
+       "architecture",
+       "testing",
+       "deployment",
+       "maintenance",
+       "defensive"
+      ]
+     }
+    },
+    "risk_threshold": {
+     "type": "number",
+     "description": "Minimum risk score to report issues (0-100)",
+     "default": 50
+    },
+    "confidence_threshold": {
+     "type": "number",
+     "description": "Minimum confidence level for patterns (0.0-1.0)",
+     "default": 0.7
+    },
+    "include_fixes": {
+     "type": "boolean",
+     "description": "Include suggested fixes in response",
+     "default": true
+    },
+    "include_metrics": {
+     "type": "boolean",
+     "description": "Include detailed metrics in response",
+     "default": true
+    },
+    "custom_rules": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       },
+       "description": {
+        "type": "string"
+       },
+       "pattern": {
+        "type": "string"
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "critical",
+         "high",
+         "medium",
+         "low"
+        ]
+       },
+       "message": {
+        "type": "string"
+       },
+       "fix": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "name",
+       "description",
+       "pattern",
+       "severity",
+       "message"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "code",
+    "technology"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_visualizer",
+  "title": "Visualizer",
+  "description": "M7 Context Visualizer - interactive graph visualization of code dependencies.\n\nActions:\n- start: Start the visualizer server (opens web UI)\n- stop: Stop the visualizer server\n- status: Check if server is running\n- set_context: Update current file/task context\n- get_graph: Get graph data as JSON\n- focus: Focus on a specific node\n- open: Get URL to open visualizer\n\nThe visualizer shows:\n- Code dependency graph with live updates\n- Current editing context (\"You are here\")\n- Impact analysis (what changes affect)\n- Navigation history\n- Health metrics\n\nUse 'start' to launch, then open the URL in browser.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "start",
+      "stop",
+      "status",
+      "set_context",
+      "get_graph",
+      "focus",
+      "open"
+     ]
+    },
+    "file": {
+     "type": "string",
+     "description": "File path for set_context action"
+    },
+    "task": {
+     "type": "string",
+     "description": "Task description for set_context action"
+    },
+    "node_id": {
+     "type": "string",
+     "description": "Node ID for focus action"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ },
+ {
+  "name": "mcp_m7_warmup",
+  "title": "Warmup",
+  "description": "M7 Warmup System — прогрев контекста проекта для нового чата. Загружает полную информацию о проекте и выдаёт отчёт для проверки.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "warmup",
+      "status",
+      "invalidate",
+      "record",
+      "compliance",
+      "akstis"
+     ],
+     "description": "Action: warmup, status, invalidate, record, compliance, akstis (возврат к M7)"
+    },
+    "scope": {
+     "type": "string",
+     "enum": [
+      "light",
+      "standard",
+      "full"
+     ],
+     "description": "Scope: light (только ядро), standard (ядро + задачи), full (всё)"
+    },
+    "force": {
+     "type": "boolean",
+     "default": false,
+     "description": "Force: принудительный прогрев, игнорируя кэш"
+    },
+    "full_cycle": {
+     "type": "boolean",
+     "description": "Была ли задача выполнена через полный M7 цикл"
+    },
+    "success": {
+     "type": "boolean",
+     "default": true,
+     "description": "Была ли задача успешной"
+    },
+    "project_path": {
+     "type": "string",
+     "description": "Explicit path to project directory. If not provided, auto-detected from MCP roots or environment."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+ }
+]

@@ -15,6 +15,20 @@ that mention those pieces describe history, not what ships here.
 
 ## [Unreleased]
 
+### Removed
+- Modules that nothing under `src/index.ts` reaches (32 source files, 8,800 lines) and the 3 test files that only covered them. `tools/list` still names the same 37 tools. The event-system half of `tests/phase3/test-doctor-events.mjs` went with its module.
+- Unused npm dependencies: `chromadb`, `chromadb-default-embed`, `chokidar`, `lodash.debounce`, `lru-cache`, `p-queue`, `semver`, `zod-to-json-schema`, `@types/json-schema`. The ChromaDB HTTP health check and `CHROMA_URL` are unchanged.
+
+### Security
+- Raised dependency floors to releases that fix published advisories: `@modelcontextprotocol/sdk` ^1.32.0 (was ^1.17.2), `ws` ^8.21.0, `js-yaml` ^4.3.2, `yaml` ^2.8.3. `npm audit fix` was applied without `--force`.
+- `npm audit` still lists `zod`, `openai`, `diff`, `ts-morph`, `@ts-morph/common` and `minimatch`; their fixes need a major version change or a downgrade, and none was applied.
+
+### Changed
+- With `@modelcontextprotocol/sdk` 1.32 every tool in `tools/list` also carries `execution: {"taskSupport":"forbidden"}`. Tool names, descriptions and input schemas are unchanged. `tests/toolSurface.test.mjs` guards the surface against the 3.22.2 list and allows only this exact field.
+
+### Added
+- `.gitleaksignore` for two sample values in `src/tsi/patterns/security/auth.yaml` (lines marked `bad:`).
+
 ## [3.22.2] - 2026-10-30
 
 ### Fixed
