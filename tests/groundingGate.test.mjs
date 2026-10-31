@@ -103,9 +103,10 @@ assert.ok(report.includes('| 0 | 0 |'));
     resetMemoryCore();
     await mkdir(path.join(dir, 'src'), { recursive: true });
     await writeFile(path.join(dir, 'src', 'foo.ts'), 'export const x = 1;\n');
-    const rec = await resolvePremiseRef('path:src/foo.ts');
+    const now = Date.now();
+    const rec = await resolvePremiseRef('path:src/foo.ts', now);
     assert.ok(rec, 'expected filesystem premise record');
-    assert.equal(getEpistemicStatus(rec), 'KNOWN');
+    assert.equal(getEpistemicStatus(rec, now), 'KNOWN');
   } finally {
     process.env.M7_PROJECT_PATH = prev;
     process.env.CURSOR_WORKSPACE = prevWs;
