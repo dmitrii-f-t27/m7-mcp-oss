@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
 import { HiveTask, HiveResult } from '../types/task.js';
 import { APIConfig } from '../types/api.js';
+import { anthropicSampling } from '../api/anthropicParams.js';
 import { JournalSystem } from '../../journal/journalSystem.js';
 import { getProjectPath } from '../../core/utils/projectPath.js';
 import { silentLogger as logger } from '../../core/utils/logger.js';
@@ -433,7 +434,7 @@ Format your response as JSON:
     const response = await this.anthropicClient.messages.create({
       model,
       max_tokens: maxTokens,
-      temperature: 0.1,
+      ...anthropicSampling(model, 0.1),
       system: systemPrompt,
       messages: [
         { role: 'user', content: userPrompt }
@@ -520,7 +521,7 @@ Format your response as JSON:
     const response = await this.anthropicClient.messages.create({
       model: SYNTHESIZER_MODEL,
       max_tokens: 4096,
-      temperature: 0.2,
+      ...anthropicSampling(SYNTHESIZER_MODEL, 0.2),
       system: `You are the Hive Synthesizer. Your role is to analyze expert proposals and produce an honest, calibrated assessment.
 
 Instructions:

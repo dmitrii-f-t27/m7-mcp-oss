@@ -13,6 +13,7 @@ import { DynamicAgent, ArchitectResponse, AgentDomain } from './types.js';
 import { createLogger } from '../../core/utils/logger.js';
 const log = createLogger('[HiveArchitect]');
 import { getAnthropic, getClientPool } from '../api/clientPool.js';
+import { anthropicSampling } from '../api/anthropicParams.js';
 // v5.1: Use robust JSON parser for LLM responses
 import { robustParse } from '../utils/json/index.js';
 
@@ -72,7 +73,7 @@ export class HiveArchitect {
       const response = await this.client.messages.create({
         model: ARCHITECT_MODEL,
         max_tokens: 4000, // More tokens for batch
-        temperature: 0.3,
+        ...anthropicSampling(ARCHITECT_MODEL, 0.3),
         system: this.getBatchSystemPrompt(),
         messages: [
           { role: 'user', content: prompt }
@@ -227,7 +228,7 @@ Respond with valid JSON array:
       const response = await this.client.messages.create({
         model: ARCHITECT_MODEL,
         max_tokens: 4096,
-        temperature: 0.3,  // Slightly creative but consistent
+        ...anthropicSampling(ARCHITECT_MODEL, 0.3),  // Slightly creative but consistent; none for Opus
         system: this.getSystemPrompt(),
         messages: [
           { role: 'user', content: prompt }

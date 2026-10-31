@@ -8,6 +8,7 @@ import { discoverModels, getOptimalAgentModels, DiscoveryResult } from './modelD
 import { parseLegacyAgentResponse } from '../utils/json/index.js';
 import { withRetry, classifyError, RetryConfig, formatRetryResult } from '../../core/utils/retry.js';
 import { ProviderManager } from './providerManager.js';
+import { anthropicSampling } from './anthropicParams.js';
 import { guardContext, analyzeContext, formatAnalysis, ContextGuardConfig, DEFAULT_CONTEXT_GUARD_CONFIG } from '../context/index.js';
 
 export class APIManager {
@@ -404,7 +405,7 @@ export class APIManager {
       const response = await this.anthropicClient.messages.create({
         model: config.model,
         max_tokens: 4096,
-        temperature: 0.1,
+        ...anthropicSampling(config.model, 0.1),
         system: systemPrompt,
         messages: [
           { role: 'user', content: prompt }

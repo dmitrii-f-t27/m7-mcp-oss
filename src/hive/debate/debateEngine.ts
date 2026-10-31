@@ -23,6 +23,7 @@ import {
 } from './types.js';
 import { robustParse } from '../utils/json/index.js';
 import { silentLogger as logger } from '../../core/utils/logger.js';
+import { anthropicSampling } from '../api/anthropicParams.js';
 
 // Valid critique verdicts for validation
 const VALID_VERDICTS: CritiqueVerdict[] = ['CONFIRM', 'REFINE', 'CONTEST', 'INSUFFICIENT'];
@@ -501,7 +502,7 @@ Respond JSON only: {"convergence_score":0.85,"direction":"converging|diverging|s
       const response = await this.anthropicClient.messages.create({
         model,
         max_tokens: maxTokens,
-        temperature: 0.3,
+        ...anthropicSampling(model, 0.3),
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
       });

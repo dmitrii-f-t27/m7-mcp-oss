@@ -19,6 +19,7 @@ import {
 import { createLogger } from '../../core/utils/logger.js';
 const log = createLogger('[PlannerAgent]');
 import { getAnthropic, getClientPool } from '../api/clientPool.js';
+import { anthropicSampling } from '../api/anthropicParams.js';
 
 // Planner uses Claude Opus 4.6 for complex reasoning
 const PLANNER_MODEL = 'claude-opus-4-6';
@@ -68,7 +69,7 @@ export class PlannerAgent {
       const response = await this.client.messages.create({
         model: PLANNER_MODEL,
         max_tokens: 3000,
-        temperature: 0.2,
+        ...anthropicSampling(PLANNER_MODEL, 0.2),
         system: this.getSystemPrompt(),
         messages: [
           { role: 'user', content: this.buildPrompt(goal, context, constraints) }

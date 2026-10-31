@@ -88,3 +88,21 @@ one `.env` file: the file in the M7 install directory (the parent of `dist/`).
 - **What stops working:** a `.env` in some other working directory. Move the
   keys to the `.env` in the install directory (`cp .env.example .env` in the
   repository root) or to the `env` block of your MCP client config.
+
+## Anthropic sampling parameters (Opus models)
+
+Hive calls to the Anthropic Messages API used to send a fixed `temperature`
+(0.1 to 0.3) to every model. M7 now sends no `temperature` to a model whose
+name starts with `claude-opus-`, and still sends it to every other model
+(`src/hive/api/anthropicParams.ts`, used at all seven call sites).
+
+- **Not verified:** newer Opus models are said to reject a non-default
+  sampling parameter, so the old requests may have failed with a 400 error.
+  This has not been checked. It needs a live call with a real key, and the
+  tests in this repository make no network call. The tests prove what M7
+  sends, not what the API accepts.
+- **Behaviour change without a failure:** Opus 4.5 and 4.6 now run at the API
+  default temperature, not 0.1 to 0.3. Answers from those models can vary more
+  from run to run.
+- **Other models are unchanged.** The OpenAI calls and the streaming executor
+  are not touched.
