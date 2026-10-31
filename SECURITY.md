@@ -233,7 +233,7 @@ line is off.
 | SEC-23 | LOW | `create_structure`: a `task_id` such as `../../x` stays inside the project but can put templates outside `docs/` | OPEN, LOW | `src/core/tools/createStructure.ts:73`, `:218-220` (name), `:188-191` (containment) | `tests/sec-write-paths.test.mjs` (containment only) |
 | SEC-24 | LOW | `push-file` can send control paths such as `.git/config` (only `pull-file` refuses them) | OPEN, by design | `src/core/security/pathGuard.ts:147`, `:156` | none |
 | SEC-25 | LOW | Mesh error text is flattened to one line but not fenced | OPEN, LOW | `src/mesh/tools/meshTool.ts:780` | none |
-| SEC-26 | MED | A data folder of the project shipped as a symlink: `.m7`, a link below it (`.m7/memory`), `m7-cycles` or `knowledge-hub`. The journal, the memory files, the cross-session, TSI, task graph and session files, the cycle artifacts and the hub were written through the link, outside the project. A `project_path` that named such a project did the same through `init_project` and `project_index`. The Hive report went through a `docs` link the same way | FIXED, with limits; see "SEC-26 details". `dataDirRefusal` walks the folders without following links and refuses a folder or a nested link that leaves the project or dangles. The server checks `.m7` and `m7-cycles` before every tool call (once per project root); `applyProjectPath` and `project_index` with a `project_path` check the project they are given; `knowledge_hub` checks `knowledge-hub` on every action. The Hive report is written only when `docs/hive` resolves inside the project, otherwise it is skipped and the tool still answers. Three other project files are not covered: SEC-32 | `src/core/security/pathGuard.ts:202` (`linkLeavesRoot`), `:322`, `:325`, `:352-396` (`dataDirRefusal`); `src/index.ts:779-789`, `:823-827`; `src/core/utils/projectPath.ts:411-414`; `src/core/tools/projectIndex/projectIndexTool.ts:113-118`; `src/core/tools/knowledgeHub/knowledgeHubTool.ts:81-83`; `src/hive/tools/hiveCoordinator.ts:39-73` | `tests/sec-write-paths.test.mjs`, `tests/sec-hive.test.mjs` |
+| SEC-26 | MED | A data folder of the project shipped as a symlink: `.m7`, a link below it (`.m7/memory`), `m7-cycles` or `knowledge-hub`. The journal, the memory files, the cross-session, TSI, task graph and session files, the cycle artifacts and the hub were written through the link, outside the project. A `project_path` that named such a project did the same through `init_project` and `project_index`. The Hive report went through a `docs` link the same way | FIXED, with limits; see "SEC-26 details". `dataDirRefusal` walks the folders and refuses a folder or a nested link that leaves the project or dangles; a link that stays inside the project and names a folder is followed once, so a second link behind it is found. The server checks `.m7` and `m7-cycles` before every tool call (once per project root); `applyProjectPath` and `project_index` with a `project_path` check the project they are given; `knowledge_hub` checks `knowledge-hub` on every action. The Hive report is written only when `docs/hive` resolves inside the project, otherwise it is skipped and the tool still answers. Three other project files are not covered: SEC-32 | `src/core/security/pathGuard.ts:202` (`linkLeavesRoot`), `:322`, `:325`, `:354-416` (`dataDirRefusal`); `src/index.ts:779-789`, `:823-827`; `src/core/utils/projectPath.ts:411-414`; `src/core/tools/projectIndex/projectIndexTool.ts:113-118`; `src/core/tools/knowledgeHub/knowledgeHubTool.ts:81-83`; `src/hive/tools/hiveCoordinator.ts:39-73` | `tests/sec-write-paths.test.mjs`, `tests/sec-hive.test.mjs` |
 | SEC-27 | LOW | `ConsoleMonitor` is one object per process and kept the journal of its first call. After the project changed (SEC-21), the console errors it captured, with their messages and stack traces, went into the journal of the first project's `.m7` | FIXED: `getInstance` takes the journal of every call | `src/core/tools/critical/console.ts:66-76`, `:338` | `tests/sec-low.test.mjs` |
 | SEC-28 | LOW | `GraphVisualizerService` keeps the knowledge graph it took when it was built. After the project changes, it keeps the graph of the first project | OPEN, LOW. Not fixed here | `src/visualizer/graph-visualizer-service.ts:33`, `:461-466`; `src/visualizer/visualizer-server.ts:77`; the graph itself is reset at `src/knowledge-graph/index.ts:414` | none |
 | SEC-29 | LOW | Model discovery at server start sends a model list request to OpenAI and a 1-token `Hi` message to Anthropic for each of five model names, with your keys. There is no switch | OPEN, LOW. Documented in "What leaves the machine". Not fixed here | `src/index.ts:233-252`; `src/hive/api/apiManager.ts:130`; `src/hive/api/modelDiscovery.ts:100`, `:137-151` | none |
@@ -383,10 +383,14 @@ line is off.
   and saving the tenth version of a document fails in the prune step with
   `Version undefined not found`. No test covers it.
 - **SEC-26 details.** A cloned repository can ship `.m7`, a folder below it,
-  `m7-cycles` or `knowledge-hub` as a symlink. `dataDirRefusal` walks each folder
-  without following links, counts the entries, and refuses a folder or a nested
-  link that resolves outside `realpath(root)` or dangles, a tree with more than
-  20,000 entries, a folder it cannot read and a root it cannot resolve. A refusal
+  `m7-cycles` or `knowledge-hub` as a symlink. `dataDirRefusal` walks each folder,
+  counts the entries, and refuses a folder or a nested link that resolves outside
+  `realpath(root)` or dangles, a tree with more than 20,000 entries, a folder it
+  cannot read and a root it cannot resolve. A link that stays inside the project
+  and names a folder is followed: the folder it names is walked too, once per
+  real path, so `.m7/cross-session -> ../y` with `y/out -> /elsewhere` is
+  refused, and links that loop end at a folder already seen. The entries behind
+  such a link count toward the 20,000. A refusal
   reads `Refusing to write outside the project: <path>`. The server runs the
   check before every tool call, once per project root (a root that passed is not
   walked again in that process), and it returns an error answer. The same check
@@ -396,10 +400,10 @@ line is off.
   folder. The Hive report is not a data folder (a linked `docs` is common), so
   `saveHiveReport` resolves its target with `resolveContainedEntry` and skips the
   report when `docs/hive` leaves the project. **Limits:** the check and the write
-  are two steps, so a link planted after the check is not caught. A link that
-  stays inside the project is accepted and not followed, so a link behind it that
-  leaves the project is not found. A tree of more than 20,000 entries is refused
-  even when it is harmless. **Traced, nothing to fix:** `mcp_m7_arch_advisor`
+  are two steps, so a link planted after the check is not caught. A tree of more
+  than 20,000 entries is refused even when it is harmless, and a link inside the
+  data folder to a large folder of the project, such as the project root, can
+  reach that limit. **Traced, nothing to fix:** `mcp_m7_arch_advisor`
   writes nothing: it reads the project at `project_path`, and it may read the
   cache `.m7/knowledge-graph.json` of the session project, not of `project_path`. The training export
   has no output path parameter, and its default is under `.m7`
@@ -494,7 +498,7 @@ secret exists.
   config are trusted input (SEC-8).
 - An explicit `project_path` is followed if the directory exists (SEC-16). The
   data-folder check of SEC-26 looks at `.m7` and `m7-cycles` once per project
-  root and does not follow a link that stays inside the project.
+  root; a link planted in them later is not caught.
 - The logger redacts nothing and is off unless `M7_DEBUG=true` (SEC-17).
 - Opus models run at the API default temperature (SEC-9).
 - One test in `tests/deepScanAcceptance.test.mjs` (the one named "existing

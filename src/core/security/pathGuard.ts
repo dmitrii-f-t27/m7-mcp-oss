@@ -341,11 +341,13 @@ function refuseDataDir(where: string, note = ''): string {
  * the project, otherwise null. A cloned repo can ship `.m7` or `m7-cycles` as a symlink,
  * and everything M7 writes there would land in the folder the link names.
  *
- * Each folder is walked without following links. The folder itself, or any link below it,
- * that resolves outside `realpath(root)` or dangles is refused. A link that stays inside
- * the project is fine; it is not followed, so a link behind it is not looked at. More than
- * DATA_DIR_MAX_ENTRIES entries in all are refused, and so are a folder that cannot be read
- * and a root that cannot be resolved. A folder that is absent passes.
+ * Each folder is walked. The folder itself, or any link below it, that resolves outside
+ * `realpath(root)` or dangles is refused. A link that stays inside the project and names a
+ * folder is followed: its real path is walked too, once, so a link behind it is found
+ * (`.m7/a -> ../y` with `y/out -> /elsewhere`), and links that loop end at a folder already
+ * seen. A link to a file inside the project is fine. More than DATA_DIR_MAX_ENTRIES entries
+ * in all, the entries behind followed links included, are refused, and so are a folder that
+ * cannot be read and a root that cannot be resolved. A folder that is absent passes.
  *
  * Limit: the folders are checked, then used. A link planted after the check is not caught.
  */
@@ -354,6 +356,9 @@ export function dataDirRefusal(root: string, dirs: readonly string[]): string | 
   if (realRoot === null) return refuseDataDir(root, ' (the project root cannot be resolved)');
 
   let entries = 0;
+  // Real paths of the folders already walked or queued. A link to one of them is not
+  // walked again, so a loop of links ends and a folder is not counted twice.
+  const seen = new Set<string>();
   for (const dir of dirs) {
     const start = nodePath.join(realRoot, dir);
     let top = start;
@@ -368,6 +373,8 @@ export function dataDirRefusal(root: string, dirs: readonly string[]): string | 
       if (errorCode(error) === 'ENOENT') continue;
       return refuseDataDir(start);
     }
+    if (seen.has(top)) continue;
+    seen.add(top);
 
     const pending = [top];
     while (pending.length > 0) {
@@ -385,8 +392,21 @@ export function dataDirRefusal(root: string, dirs: readonly string[]): string | 
         }
         const full = nodePath.join(current, entry.name);
         if (entry.isSymbolicLink()) {
-          if (linkLeavesRoot(realRoot, realpathOrNull(full))) return refuseDataDir(full);
-        } else if (entry.isDirectory()) {
+          const real = realpathOrNull(full);
+          if (real === null || linkLeavesRoot(realRoot, real)) return refuseDataDir(full);
+          // The link stays inside the project. Walk the folder it names, once.
+          let isFolder: boolean;
+          try {
+            isFolder = lstatSync(real).isDirectory();
+          } catch {
+            return refuseDataDir(full);
+          }
+          if (isFolder && !seen.has(real)) {
+            seen.add(real);
+            pending.push(real);
+          }
+        } else if (entry.isDirectory() && !seen.has(full)) {
+          seen.add(full);
           pending.push(full);
         }
       }

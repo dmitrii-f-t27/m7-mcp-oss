@@ -646,6 +646,13 @@ async function seedOutside(outside) {
   await writeFile(path.join(outside, 'errors.json'), '[]\n');
 }
 
+/** One stored insight, as the cross-session store keeps it, so `validate` has something to rewrite. */
+const SEEDED_INSIGHT = {
+  id: 'sec26-insight', type: 'knowledge', content: 'seeded for the SEC-26 chain test', confidence: 0.5, confidenceEma: 0.5,
+  category: 'test', source: { sessionId: 'sec26', actionIds: [] }, createdAt: '2026-01-01T00:00:00.000Z',
+  lastUsedAt: '2026-01-01T00:00:00.000Z', usageCount: 0, timesValidated: 0, timesViolated: 0,
+};
+
 const DATA_LINKS = {
   '.m7': async ({ proj, outside }) => {
     await symlink(outside, path.join(proj, '.m7'));
@@ -656,6 +663,24 @@ const DATA_LINKS = {
   },
   'm7-cycles': async ({ proj, outside }) => {
     await symlink(outside, path.join(proj, 'm7-cycles'));
+  },
+  // A link that stays inside the project, and a second link behind it that leaves it.
+  '.m7/cross-session -> ../y, y/out -> outside': async ({ proj, outside }) => {
+    await mkdir(path.join(proj, '.m7'));
+    await mkdir(path.join(proj, 'y'));
+    await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+    await symlink(outside, path.join(proj, 'y', 'out'));
+  },
+  // The same chain, ending in a file that a plain write replaces in place. The cross-session
+  // store reads `.m7/cross-session/insights.json` and writes it back with `writeFile`, which
+  // follows a link at the file; `validate` on a stored insight triggers that write. (The memory
+  // store is no example: it writes through a temporary file, which replaces the link.)
+  '.m7/cross-session -> ../y, y/insights.json -> outside file': async ({ proj, outside }) => {
+    await writeFile(path.join(outside, 'insights.json'), `${JSON.stringify([SEEDED_INSIGHT])}\n`);
+    await mkdir(path.join(proj, '.m7'));
+    await mkdir(path.join(proj, 'y'));
+    await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+    await symlink(path.join(outside, 'insights.json'), path.join(proj, 'y', 'insights.json'));
   },
 };
 
@@ -769,6 +794,76 @@ describe('SEC-26: what must keep working', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SEC-26: a link that stays inside the project and leads to a link that leaves it
+// ---------------------------------------------------------------------------
+
+// `.m7/cross-session -> ../y` stays inside the project, so the folder walk accepted it. When
+// the walk did not follow it, `y/out -> <outside>` was never looked at, and a plain write under
+// `.m7/cross-session` reached the outside folder. The walk follows a link that stays inside and
+// names a folder, once per real path.
+
+describe('SEC-26: a link inside the project that leads to a link leaving it', () => {
+  it('analyze_task leaves the outside folder byte-identical when .m7/cross-session is an inward link to a folder holding an outward link', T, () =>
+    callWithPlantedLink('.m7/cross-session -> ../y, y/out -> outside', 'mcp_m7_analyze_task', { task_description: TASK }));
+
+  it('a cross-session validate leaves the outside file byte-identical when .m7/cross-session is an inward link to a folder holding a link to that file', T, () =>
+    callWithPlantedLink(
+      '.m7/cross-session -> ../y, y/insights.json -> outside file',
+      'mcp_m7_cross_session',
+      { action: 'validate', insight_id: SEEDED_INSIGHT.id, valid: true },
+    ));
+
+  it('knowledge_hub init is refused when a hub folder is an inward link to a folder holding an outward link', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      await seedOutside(outside);
+      await mkdir(path.join(proj, 'knowledge-hub'));
+      await mkdir(path.join(proj, 'y'));
+      await symlink('../y', path.join(proj, 'knowledge-hub', 'versions'));
+      await symlink(outside, path.join(proj, 'y', 'out'));
+      const before = await snapshotBytes(outside);
+      const res = await callTool(proj, 'mcp_m7_knowledge_hub', { action: 'init' }, { settleMs: 700 });
+      assert.deepEqual(await snapshotBytes(outside), before, 'knowledge_hub init changed the folder outside the project');
+      assert.match(res.text, /"success": false/, `init must report the refusal:\n${res.text.slice(0, 400)}`);
+      assert.match(res.text, REFUSED, `the answer must say why:\n${res.text.slice(0, 400)}`);
+    });
+  });
+});
+
+describe('SEC-26: links that stay inside the project (controls)', () => {
+  it('control: .m7/memory as a link to a plain folder inside the project still takes the memory file', T, async () => {
+    await withNested(async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await writeFile(path.join(proj, 'y', 'note.txt'), 'a plain file\n');
+      await symlink('../y', path.join(proj, '.m7', 'memory'));
+      const res = await callTool(
+        proj,
+        'mcp_m7_memory',
+        { action: 'store_at', level: 'L2', content: 'Decision: sec-26 control record, written to the durable level.', context_keys: ['sec-26'] },
+        { settleMs: 700 },
+      );
+      assert.ok(!res.isError, `memory store must work:\n${res.text.slice(0, 400)}`);
+      assert.ok(existsSync(path.join(proj, 'y', 'longterm.json')), 'the memory file did not land in the folder the link names');
+      assert.equal(await readFile(path.join(proj, 'y', 'note.txt'), 'utf8'), 'a plain file\n');
+      assert.ok((await lstat(path.join(proj, '.m7', 'memory'))).isSymbolicLink(), '.m7/memory was replaced by a real folder');
+    });
+  });
+
+  it('control: links that loop inside the project do not stop a tool call', T, async () => {
+    await withNested(async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await symlink('.', path.join(proj, '.m7', 'self'));
+      await symlink('../y', path.join(proj, '.m7', 'a'));
+      await symlink('../.m7', path.join(proj, 'y', 'back'));
+      const res = await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 700 });
+      assert.ok(!res.isError, `analyze_task must work with looping inward links:\n${res.text.slice(0, 400)}`);
+      assert.doesNotMatch(res.text, REFUSED);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // dataDirRefusal (support tests: the function is new)
 // ---------------------------------------------------------------------------
 
@@ -825,6 +920,138 @@ describe('SEC-26: dataDirRefusal and linkLeavesRoot', () => {
         assert.ok(refusal.includes('.m7'), `[${what}] the refusal must name the path: ${refusal}`);
       });
     }
+  });
+
+  // One test per layout, so each shows on its own whether the walk follows that kind of link.
+  const INWARD_THEN_OUT = {
+    'a folder link behind an inward link': {
+      dirs: ['.m7'],
+      leaf: path.join('y', 'out'),
+      plant: async ({ proj, outside }) => {
+        await mkdir(path.join(proj, '.m7'));
+        await mkdir(path.join(proj, 'y'));
+        await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+        await symlink(outside, path.join(proj, 'y', 'out'));
+      },
+    },
+    'a file link behind an inward link': {
+      dirs: ['.m7'],
+      leaf: path.join('y', 'features.json'),
+      plant: async ({ proj, outside }) => {
+        await writeFile(path.join(outside, 'f.json'), '[]\n');
+        await mkdir(path.join(proj, '.m7'));
+        await mkdir(path.join(proj, 'y'));
+        await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+        await symlink(path.join(outside, 'f.json'), path.join(proj, 'y', 'features.json'));
+      },
+    },
+    'a dangling link behind an inward link': {
+      dirs: ['.m7'],
+      leaf: path.join('y', 'gone'),
+      plant: async ({ proj, outer }) => {
+        await mkdir(path.join(proj, '.m7'));
+        await mkdir(path.join(proj, 'y'));
+        await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+        await symlink(path.join(outer, 'nowhere'), path.join(proj, 'y', 'gone'));
+      },
+    },
+    'three inward hops, then the link that leaves': {
+      dirs: ['.m7'],
+      leaf: path.join('z', 'out'),
+      plant: async ({ proj, outside }) => {
+        await mkdir(path.join(proj, '.m7'));
+        await mkdir(path.join(proj, 'y'));
+        await mkdir(path.join(proj, 'z'));
+        await symlink('../y', path.join(proj, '.m7', 'a'));
+        await symlink('../z', path.join(proj, 'y', 'b'));
+        await symlink(outside, path.join(proj, 'z', 'out'));
+      },
+    },
+    'the data folder itself is an inward link': {
+      dirs: ['m7-cycles'],
+      leaf: path.join('y', 'out'),
+      plant: async ({ proj, outside }) => {
+        await mkdir(path.join(proj, 'y'));
+        await symlink('y', path.join(proj, 'm7-cycles'));
+        await symlink(outside, path.join(proj, 'y', 'out'));
+      },
+    },
+    'a nested folder inside the folder the inward link names': {
+      dirs: ['.m7'],
+      leaf: path.join('y', 'sub', 'deep', 'out'),
+      plant: async ({ proj, outside }) => {
+        await mkdir(path.join(proj, '.m7'));
+        await mkdir(path.join(proj, 'y', 'sub', 'deep'), { recursive: true });
+        await symlink('../y', path.join(proj, '.m7', 'cross-session'));
+        await symlink(outside, path.join(proj, 'y', 'sub', 'deep', 'out'));
+      },
+    },
+  };
+  for (const [what, { dirs, leaf, plant }] of Object.entries(INWARD_THEN_OUT)) {
+    it(`dataDirRefusal: ${what} is refused with its path`, async () => {
+      const { dataDirRefusal } = await import(distUrl('core/security/pathGuard.js'));
+      await withNested(async nested => {
+        await plant(nested);
+        const refusal = dataDirRefusal(nested.proj, dirs);
+        assert.ok(typeof refusal === 'string' && /Refusing to write outside the project: /.test(refusal), `expected a refusal, got ${JSON.stringify(refusal)}`);
+        assert.ok(refusal.includes(leaf), `the refusal must name ${leaf}: ${refusal}`);
+      });
+    });
+  }
+
+  const LOOPS = {
+    'a link to the folder it sits in': async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await symlink('.', path.join(proj, '.m7', 'self'));
+    },
+    'two folders that link to each other': async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await symlink('../y', path.join(proj, '.m7', 'a'));
+      await symlink('../.m7', path.join(proj, 'y', 'back'));
+    },
+    'three folders in a ring': async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await mkdir(path.join(proj, 'z'));
+      await symlink('../y', path.join(proj, '.m7', 'a'));
+      await symlink('../z', path.join(proj, 'y', 'b'));
+      await symlink('../y', path.join(proj, 'z', 'c'));
+    },
+    'two links to one folder': async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await writeFile(path.join(proj, 'y', 'f.json'), '[]\n');
+      await symlink('../y', path.join(proj, '.m7', 'one'));
+      await symlink('../y', path.join(proj, '.m7', 'two'));
+    },
+    'a link to a file inside the project': async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await symlink(path.join(proj, 'package.json'), path.join(proj, '.m7', 'file-link'));
+    },
+  };
+  for (const [what, plant] of Object.entries(LOOPS)) {
+    it(`dataDirRefusal: ${what} ends and is not an error (guard: may pass on old code)`, async () => {
+      const { dataDirRefusal } = await import(distUrl('core/security/pathGuard.js'));
+      await withNested(async nested => {
+        await plant(nested);
+        assert.equal(dataDirRefusal(nested.proj, ['.m7']), null, 'must pass');
+      });
+    });
+  }
+
+  it('dataDirRefusal: the entry limit counts the entries behind an inward link', async () => {
+    const { dataDirRefusal } = await import(distUrl('core/security/pathGuard.js'));
+    await withNested(async ({ proj }) => {
+      await mkdir(path.join(proj, '.m7'));
+      await mkdir(path.join(proj, 'y'));
+      await symlink('../y', path.join(proj, '.m7', 'big')); // 1 entry in .m7
+      await Promise.all(Array.from({ length: 19999 }, (_, i) => writeFile(path.join(proj, 'y', `f${i}`), '')));
+      assert.equal(dataDirRefusal(proj, ['.m7']), null, 'exactly 20000 entries in all pass');
+      await writeFile(path.join(proj, 'y', 'one-more'), '');
+      const refusal = dataDirRefusal(proj, ['.m7']);
+      assert.ok(typeof refusal === 'string' && /20000/.test(refusal), `20001 entries must be refused, got ${JSON.stringify(refusal)}`);
+    });
   });
 
   it('dataDirRefusal: more than 20000 entries are refused, 20000 are not', async () => {
