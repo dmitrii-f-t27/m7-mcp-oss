@@ -1,4 +1,5 @@
 import { constants as fsConstants, promises as fs } from 'fs';
+import { resolveContainedEntry } from '../security/pathGuard.js';
 
 /**
  * Rules for writing into a user's project (SEC-2).
@@ -131,6 +132,21 @@ export async function writeManagedFile(
   if (action === 'create') return writeIfAbsent(absPath, content);
   await fs.writeFile(absPath, content, 'utf-8');
   return 'updated';
+}
+
+/**
+ * Write `content` to the file `rel` under `root` (SEC-32). Throws, and writes nothing, when the
+ * folder above the file leaves the project (`resolveContainedEntry`, also through symlinks) or
+ * when the file itself is a symlink, dangling or not. An absent file is created and a regular
+ * file is replaced. Use it for a project file M7 rewrites that is not a data folder entry.
+ *
+ * Limit: the check and the write are two steps. A link planted between them is not caught.
+ */
+export async function writeRegularFile(root: string, rel: string, content: string): Promise<void> {
+  const abs = await resolveContainedEntry(root, rel);
+  if (abs === null) throw new Error(`Refusing to write outside the project: ${rel}`);
+  if (await isSymlinkNoFollow(abs)) throw new Error(`Refusing to write ${rel}: it is a symbolic link`);
+  await fs.writeFile(abs, content, 'utf-8');
 }
 
 /** Append `entry` only to an existing file that carries the marker. */

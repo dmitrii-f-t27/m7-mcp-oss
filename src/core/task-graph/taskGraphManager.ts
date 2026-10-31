@@ -26,6 +26,7 @@ import {
 } from '../types/taskGraph.js';
 import { TaskInterpretation } from '../types/interpretation.js';
 import { getProjectPath, onProjectPathChange } from '../utils/projectPath.js';
+import { writeRegularFile } from '../utils/safeWrite.js';
 
 const log = createLogger('[TaskGraphManager]');
 
@@ -162,7 +163,7 @@ export class TaskGraphManager {
    * Сохраняет метаданные задачи в её папку
    */
   private async saveTaskMeta(options: CreateTaskOptions): Promise<void> {
-    const metaPath = path.join(this.projectPath, options.folder, TASK_META_FILENAME);
+    const metaRel = path.join(options.folder, TASK_META_FILENAME);
     
     const meta: TaskMeta = {
       taskId: options.id,
@@ -186,8 +187,8 @@ export class TaskGraphManager {
     };
     
     try {
-      await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
-      log.debug(`Task meta saved: ${metaPath}`);
+      await writeRegularFile(this.projectPath, metaRel, JSON.stringify(meta, null, 2));
+      log.debug(`Task meta saved: ${metaRel}`);
     } catch (error: any) {
       log.warn(`Failed to save task meta: ${error.message}`);
     }

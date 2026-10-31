@@ -1,9 +1,12 @@
-import { readFile, writeFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import yaml from 'js-yaml';
 import { JournalSystem } from '../journal/journalSystem';
 import { getProjectPath } from '../core/utils/projectPath.js';
+import { isSymlinkNoFollow, writeRegularFile } from '../core/utils/safeWrite.js';
+
+const SCHEMA_FILE = 'PROJECT_SCHEMA.yaml';
 
 export interface ProjectSchema {
   project: {
@@ -61,7 +64,7 @@ export class SchemaSystem {
     private journal: JournalSystem,
     private projectRoot: string = getProjectPath()
   ) {
-    this.schemaPath = join(this.projectRoot, 'PROJECT_SCHEMA.yaml');
+    this.schemaPath = join(this.projectRoot, SCHEMA_FILE);
   }
   
   /**
@@ -71,6 +74,10 @@ export class SchemaSystem {
     try {
       if (!existsSync(this.schemaPath)) {
         return null;
+      }
+      // SEC-32: a link is not read through; the file it names can be outside the project.
+      if (await isSymlinkNoFollow(this.schemaPath)) {
+        throw new Error(`${SCHEMA_FILE} is a symbolic link; M7 does not read or write it`);
       }
       
       const content = await readFile(this.schemaPath, 'utf-8');
@@ -129,7 +136,7 @@ export class SchemaSystem {
 
 `;
       
-      await writeFile(this.schemaPath, header + yamlContent);
+      await writeRegularFile(this.projectRoot, SCHEMA_FILE, header + yamlContent);
       this.schema = cleaned;
       this.lastModified = new Date();
       

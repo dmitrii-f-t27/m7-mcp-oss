@@ -10,6 +10,8 @@
 
 import { createLogger } from '../utils/logger.js';
 import { getProjectPath } from '../utils/projectPath.js';
+import { resolveContainedEntry } from '../security/pathGuard.js';
+import { isSymlinkNoFollow, writeRegularFile } from '../utils/safeWrite.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -67,9 +69,16 @@ async function saveStore(store: RepentanceStore): Promise<void> {
   await fs.writeFile(storePath, JSON.stringify(store, null, 2), 'utf-8');
 }
 
-async function renderMarkdown(store: RepentanceStore): Promise<void> {
+const REPENTANCE_DOC = path.join('docs', 'REPENTANCE.md');
+
+/**
+ * Renders the store to docs/REPENTANCE.md. Returns false, and touches nothing, when the file or
+ * the docs folder is a symlink or leaves the project (SEC-32): the store stays in .m7.
+ */
+async function renderMarkdown(store: RepentanceStore): Promise<boolean> {
   const projectPath = getProjectPath();
-  const mdPath = path.join(projectPath, 'docs', 'REPENTANCE.md');
+  const mdPath = await resolveContainedEntry(projectPath, REPENTANCE_DOC);
+  if (mdPath === null || (await isSymlinkNoFollow(mdPath))) return false;
 
   // Read the existing file to preserve the Codex Martianus epigraph
   let header = '';
@@ -115,7 +124,8 @@ ${heresyLine}
 
   body += `\n*Всего покаяний: ${store.total_confessions}. Документ обновлён автоматически через mcp_m7_repentance.*\n`;
 
-  await fs.writeFile(mdPath, header + body, 'utf-8');
+  await writeRegularFile(projectPath, REPENTANCE_DOC, header + body);
+  return true;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
@@ -173,7 +183,7 @@ Consult the Codex Martianus, Section V.`
       store.last_updated = new Date().toISOString();
 
       await saveStore(store);
-      await renderMarkdown(store);
+      const bookUpdated = await renderMarkdown(store);
 
       const heresyText = heresy && HERESIES[heresy]
         ? `\n\n**Heresy committed:** ${HERESIES[heresy]}`
@@ -189,7 +199,9 @@ Consult the Codex Martianus, Section V.`
 ---
 
 *The Archmagos has heard your confession.*
-*The Book of Repentance has been updated.*
+${bookUpdated
+  ? '*The Book of Repentance has been updated.*'
+  : '*docs/REPENTANCE.md was not updated: it, or the docs folder, is a symbolic link or leaves the project. The confession is kept in .m7/repentance.json.*'}
 
 > ${CANONICAL_PRAYER}
 

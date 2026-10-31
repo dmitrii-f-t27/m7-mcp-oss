@@ -1075,3 +1075,198 @@ describe('SEC-26: dataDirRefusal and linkLeavesRoot', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// SEC-32: project files written with a plain write
+// ---------------------------------------------------------------------------
+
+// `PROJECT_SCHEMA.yaml`, `docs/REPENTANCE.md` and `TASK_META.json` were written with `writeFile`,
+// which follows a link at the file and at every folder above it. Each is now written through
+// `writeRegularFile`, which refuses a path that leaves the project and a file that is a link.
+// A link, or a `docs` link, is the cloned repo's doing; the outside file or folder must stay as it was.
+
+const OUTSIDE_SCHEMA_TEXT = [
+  '# an unrelated YAML file outside the project that happens to have a project key',
+  'project:',
+  '  name: OUTSIDE-SCHEMA-CANARY',
+  '  version: 1.0.0',
+  '  last_updated: 2020-01-01T00:00:00.000Z',
+  '',
+].join('\n');
+const SCHEMA_CANARY = 'OUTSIDE-SCHEMA-CANARY';
+
+describe('SEC-32: PROJECT_SCHEMA.yaml is never read or written through a symlink', () => {
+  /** A project whose PROJECT_SCHEMA.yaml is a link to an outside YAML file with a valid `project:` key. */
+  async function withSchemaLink(fn) {
+    await withNested(async nested => {
+      const target = path.join(nested.outside, 'other.yaml');
+      await writeFile(target, OUTSIDE_SCHEMA_TEXT);
+      await symlink(target, path.join(nested.proj, 'PROJECT_SCHEMA.yaml'));
+      await fn({ ...nested, target });
+    });
+  }
+
+  it('mcp_m7_schema update leaves the outside file byte-identical', T, async () => {
+    await withSchemaLink(async ({ proj, target }) => {
+      const res = await callTool(proj, 'mcp_m7_schema', { action: 'update', changes: { description: 'changed by the SEC-32 probe' } });
+      assert.equal(await readFile(target, 'utf8'), OUTSIDE_SCHEMA_TEXT, `schema update rewrote the file the link names:\n${res.text.slice(0, 400)}`);
+      assert.ok((await lstat(path.join(proj, 'PROJECT_SCHEMA.yaml'))).isSymbolicLink(), 'PROJECT_SCHEMA.yaml was replaced');
+    });
+  });
+
+  it('mcp_m7_contracts register leaves the outside file byte-identical and does not claim success', T, async () => {
+    await withSchemaLink(async ({ proj, target }) => {
+      const res = await callTool(proj, 'mcp_m7_contracts', {
+        action: 'register', contract: { name: 'sec32Probe', type: 'function', purpose: 'probe for the SEC-32 test' },
+      });
+      assert.equal(await readFile(target, 'utf8'), OUTSIDE_SCHEMA_TEXT, `contracts register rewrote the file the link names:\n${res.text.slice(0, 400)}`);
+      assert.doesNotMatch(res.text, /registered successfully/, `the contract was reported as saved:\n${res.text.slice(0, 400)}`);
+    });
+  });
+
+  it('mcp_m7_schema view does not show the text of the file the link names', T, async () => {
+    await withSchemaLink(async ({ proj }) => {
+      const res = await callTool(proj, 'mcp_m7_schema', { action: 'view' });
+      assert.ok(!res.text.includes(SCHEMA_CANARY), `schema view read through the link:\n${res.text.slice(0, 400)}`);
+    });
+  });
+
+  it('control: a regular PROJECT_SCHEMA.yaml is still read, updated and extended by a contract', T, async () => {
+    await withNested(async ({ proj }) => {
+      const file = path.join(proj, 'PROJECT_SCHEMA.yaml');
+      await writeFile(file, OUTSIDE_SCHEMA_TEXT);
+      const s = await startServer(proj);
+      try {
+        const view = await s.call('mcp_m7_schema', { action: 'view' });
+        assert.ok(view.text.includes(SCHEMA_CANARY), `view must show a regular schema:\n${view.text.slice(0, 400)}`);
+        const upd = await s.call('mcp_m7_schema', { action: 'update', changes: { description: 'changed by the SEC-32 control' } });
+        assert.ok(!/error/i.test(upd.text), `update must work:\n${upd.text.slice(0, 400)}`);
+        const reg = await s.call('mcp_m7_contracts', { action: 'register', contract: { name: 'sec32Control', type: 'function', purpose: 'control for the SEC-32 test' } });
+        assert.match(reg.text, /registered successfully/, `register must work:\n${reg.text.slice(0, 400)}`);
+        await sleep(300);
+      } finally {
+        await s.stop('close');
+      }
+      const text = await readFile(file, 'utf8');
+      assert.ok((await lstat(file)).isFile(), 'PROJECT_SCHEMA.yaml is not a regular file');
+      assert.ok(text.includes('changed by the SEC-32 control'), 'the update was not written');
+      assert.ok(text.includes('sec32Control'), 'the contract was not written');
+    });
+  });
+});
+
+describe('SEC-32: docs/REPENTANCE.md is never written through a symlink', () => {
+  const CONFESSION = {
+    action: 'confess', what_happened: 'SEC-32 probe: wrote code before the discovery was done',
+    freestyle_mistake: 'edited first', how_m7_helped: 'the cycle would have stopped it',
+  };
+  const storeOf = async proj => JSON.parse(await readFile(path.join(proj, '.m7', 'repentance.json'), 'utf8'));
+
+  it('confess leaves the outside file byte-identical when docs/REPENTANCE.md is a link to it, keeps the store, and says the file was skipped', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      const target = path.join(outside, 'target.md');
+      await writeFile(target, OUTSIDE_FILE_TEXT);
+      await mkdir(path.join(proj, 'docs'));
+      await symlink(target, path.join(proj, 'docs', 'REPENTANCE.md'));
+      const res = await callTool(proj, 'mcp_m7_repentance', CONFESSION);
+      assert.equal(await readFile(target, 'utf8'), OUTSIDE_FILE_TEXT, `confess replaced the file the link names:\n${res.text.slice(0, 400)}`);
+      assert.ok((await lstat(path.join(proj, 'docs', 'REPENTANCE.md'))).isSymbolicLink(), 'docs/REPENTANCE.md was replaced');
+      assert.equal((await storeOf(proj)).total_confessions, 1, 'the confession must stay in .m7/repentance.json');
+      assert.match(res.text, /docs\/REPENTANCE\.md was not updated/, `the answer must say the file was skipped:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  it('confess creates nothing outside the project when docs is a link to a folder outside', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      await symlink(outside, path.join(proj, 'docs'));
+      const res = await callTool(proj, 'mcp_m7_repentance', CONFESSION);
+      assert.deepEqual(await listTree(outside), [], `confess wrote into the folder outside the project:\n${res.text.slice(0, 400)}`);
+      assert.equal((await storeOf(proj)).total_confessions, 1, 'the confession must stay in .m7/repentance.json');
+      assert.match(res.text, /docs\/REPENTANCE\.md was not updated/, `the answer must say the file was skipped:\n${res.text.slice(0, 600)}`);
+    });
+  });
+
+  it('control: confess still writes docs/REPENTANCE.md in a normal project', T, async () => {
+    await withNested(async ({ proj }) => {
+      await mkdir(path.join(proj, 'docs'));
+      const res = await callTool(proj, 'mcp_m7_repentance', CONFESSION);
+      const file = path.join(proj, 'docs', 'REPENTANCE.md');
+      assert.ok((await lstat(file)).isFile(), `docs/REPENTANCE.md is not a regular file:\n${res.text.slice(0, 400)}`);
+      assert.ok((await readFile(file, 'utf8')).includes('SEC-32 probe'), 'the confession is not in docs/REPENTANCE.md');
+      assert.doesNotMatch(res.text, /was not updated/);
+    });
+  });
+});
+
+describe('SEC-32: TASK_META.json is never written through a symlink', () => {
+  // analyze_task makes the task folder from the task text and writes TASK_META.json into the folder
+  // of that name under the project root. The control below fails if this name ever changes.
+  const TASK_FOLDER = 'add-retry-to-the-http-client-w_add-retry-to-the-http-client-w';
+
+  it('analyze_task leaves the outside file alone when the task folder holds a TASK_META.json link', T, async () => {
+    await withNested(async ({ proj, outside }) => {
+      const target = path.join(outside, 'meta-target.json');
+      await writeFile(target, OUTSIDE_FILE_TEXT);
+      await mkdir(path.join(proj, TASK_FOLDER));
+      await symlink(target, path.join(proj, TASK_FOLDER, 'TASK_META.json'));
+      await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+      assert.equal(await readFile(target, 'utf8'), OUTSIDE_FILE_TEXT, 'analyze_task replaced the file the TASK_META.json link names');
+      assert.ok((await lstat(path.join(proj, TASK_FOLDER, 'TASK_META.json'))).isSymbolicLink(), 'TASK_META.json was replaced');
+    });
+  });
+
+  it('TaskGraphManager.createTask writes nothing into the folder outside when docs is a link to it', T, async () => {
+    const { TaskGraphManager } = await import(distUrl('core/task-graph/taskGraphManager.js'));
+    await withNested(async ({ proj, outside }) => {
+      await mkdir(path.join(outside, 'debug', 't1'), { recursive: true });
+      await symlink(outside, path.join(proj, 'docs'));
+      await new TaskGraphManager(proj).createTask({ id: 't1', title: 'probe', folder: 'docs/debug/t1' });
+      assert.deepEqual(await listTree(outside), ['debug', 'debug/t1'], 'createTask wrote TASK_META.json into the folder outside the project');
+    });
+  });
+
+  it('control: analyze_task and createTask still write a regular TASK_META.json into a task folder', T, async () => {
+    const { TaskGraphManager } = await import(distUrl('core/task-graph/taskGraphManager.js'));
+    await withNested(async ({ proj }) => {
+      await mkdir(path.join(proj, TASK_FOLDER));
+      await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+      const viaTool = path.join(proj, TASK_FOLDER, 'TASK_META.json');
+      assert.ok((await lstat(viaTool)).isFile(), 'analyze_task did not write TASK_META.json');
+      assert.equal(JSON.parse(await readFile(viaTool, 'utf8')).title, TASK.slice(0, 100));
+
+      await mkdir(path.join(proj, 'docs', 'debug', 't1'), { recursive: true });
+      await new TaskGraphManager(proj).createTask({ id: 't1', title: 'probe', folder: 'docs/debug/t1' });
+      const direct = path.join(proj, 'docs', 'debug', 't1', 'TASK_META.json');
+      assert.ok((await lstat(direct)).isFile(), 'createTask did not write TASK_META.json');
+      assert.equal(JSON.parse(await readFile(direct, 'utf8')).taskId, 't1');
+    });
+  });
+});
+
+describe('SEC-32: writeRegularFile (support tests: new function)', () => {
+  it('writeRegularFile creates a file, replaces a regular file, and refuses a link, a dangling link, a linked folder and a path outside', async () => {
+    const { writeRegularFile } = await import(distUrl('core/utils/safeWrite.js'));
+    await withNested(async ({ proj, outside }) => {
+      await writeRegularFile(proj, 'new.txt', 'one');
+      assert.equal(await readFile(path.join(proj, 'new.txt'), 'utf8'), 'one');
+      await writeRegularFile(proj, 'new.txt', 'two');
+      assert.equal(await readFile(path.join(proj, 'new.txt'), 'utf8'), 'two');
+      await mkdir(path.join(proj, 'sub'));
+      await writeRegularFile(proj, 'sub/inner.txt', 'in');
+      assert.equal(await readFile(path.join(proj, 'sub', 'inner.txt'), 'utf8'), 'in');
+
+      await writeFile(path.join(outside, 'target.txt'), OUTSIDE_FILE_TEXT);
+      await symlink(path.join(outside, 'target.txt'), path.join(proj, 'link.txt'));
+      await symlink(path.join(outside, 'not-yet.txt'), path.join(proj, 'dangling.txt'));
+      await writeFile(path.join(proj, 'inside.txt'), 'inside');
+      await symlink(path.join(proj, 'inside.txt'), path.join(proj, 'inward.txt'));
+      await symlink(outside, path.join(proj, 'dir-link'));
+      for (const rel of ['link.txt', 'dangling.txt', 'inward.txt', 'dir-link/x.txt', '../escaped.txt', '..', '']) {
+        await assert.rejects(() => writeRegularFile(proj, rel, 'NEW'), `${JSON.stringify(rel)} must be refused`);
+      }
+      assert.equal(await readFile(path.join(outside, 'target.txt'), 'utf8'), OUTSIDE_FILE_TEXT);
+      assert.equal(await readFile(path.join(proj, 'inside.txt'), 'utf8'), 'inside');
+      assert.deepEqual((await readdir(outside)).sort(), ['target.txt']);
+    });
+  });
+});
