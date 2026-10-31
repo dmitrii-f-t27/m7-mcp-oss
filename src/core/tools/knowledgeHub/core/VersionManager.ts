@@ -21,6 +21,9 @@ import {
 } from '../utils/fileUtils.js';
 import { containedJoin, getVersionsPath } from '../utils/configUtils.js';
 
+/** Index of a document's versions. It lives next to the version files but is not a version. */
+const REGISTRY_FILE = 'registry.yaml';
+
 export class VersionManager {
   constructor(private projectPath: string) {}
   
@@ -112,9 +115,9 @@ export class VersionManager {
     }
     
     try {
-      // List all version files
+      // List all version files (registry.yaml is the index, not a version)
       const files = await listFilesRecursive(versionsDir, (file) => 
-        file.endsWith('.yaml')
+        file.endsWith('.yaml') && path.basename(file) !== REGISTRY_FILE
       );
       
       // Sort by filename (version number) in descending order
@@ -214,7 +217,7 @@ export class VersionManager {
   
   private getRegistryPath(documentId: string): string {
     const versionsDir = getVersionsPath(this.projectPath, documentId);
-    return path.join(versionsDir, 'registry.yaml');
+    return path.join(versionsDir, REGISTRY_FILE);
   }
   
   private async saveVersion(

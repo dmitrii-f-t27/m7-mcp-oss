@@ -652,3 +652,83 @@ describe('SEC-31: containedJoin and getVersionsPath (support tests: new function
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// registry.yaml is not a version
+// ---------------------------------------------------------------------------
+
+// `getHistory` listed every `.yaml` file in a document's versions folder, and `registry.yaml` is
+// one of them. `history` then showed a second entry with the version `undefined`, and the tenth
+// version of a document failed in the prune step with `Version undefined not found`.
+
+const VERSION_NAME = /^\d+\.\d+\.\d+$/;
+
+describe('knowledge_hub: registry.yaml is not a version', () => {
+  const versionsDir = proj => path.join(proj, 'knowledge-hub', 'versions', 'INDEX');
+  /** Make the hub INDEX.md differ from the generated one, so the next update saves a version. */
+  const editIndex = (proj, n) => writeFile(hubFile(proj, 'core/INDEX.md'), `text that the generator does not produce, round ${n}\n`);
+
+  it('history after one update lists one version and no registry entry', T, async () => {
+    await withNested(async ({ proj }) => {
+      let history;
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        await editIndex(proj, 1);
+        const upd = await call({ action: 'update', document_id: 'INDEX', require_confirmation: false });
+        assert.equal(body(upd)?.success, true, `update failed:\n${upd.text.slice(0, 400)}`);
+        history = body(await call({ action: 'history', document_id: 'INDEX' }));
+      });
+      assert.deepEqual(history?.versions?.map(v => v.version), ['1.0.0'], `history must list exactly the one saved version:\n${JSON.stringify(history)}`);
+      assert.equal(history?.total_versions, 1);
+      assert.ok(history.versions.every(v => !Number.isNaN(Date.parse(v.created_at))), 'a history entry has an invalid date');
+    });
+  });
+
+  it('eleven updates on one document all succeed, history lists ten versions, prune keeps ten and registry.yaml stays', T, async () => {
+    await withNested(async ({ proj }) => {
+      const results = [];
+      let history;
+      await withHub(proj, async call => {
+        await call({ action: 'init' });
+        for (let n = 1; n <= 11; n++) {
+          await editIndex(proj, n);
+          results.push(await call({ action: 'update', document_id: 'INDEX', require_confirmation: false }));
+        }
+        history = body(await call({ action: 'history', document_id: 'INDEX' }));
+      });
+
+      const failed = results.map((r, i) => [i + 1, body(r)]).filter(([, b]) => b?.success !== true).map(([n, b]) => `update ${n}: ${b?.message ?? b?.error ?? 'no JSON answer'}`);
+      assert.deepEqual(failed, [], 'every update must succeed');
+
+      const expected = Array.from({ length: 10 }, (_, i) => `1.0.${10 - i}`); // newest first; 1.0.0 was pruned
+      assert.deepEqual(history?.versions?.map(v => v.version), expected, `history must list the ten newest versions, no registry entry:\n${JSON.stringify(history)}`);
+      assert.ok(history.versions.every(v => !Number.isNaN(Date.parse(v.created_at))), 'a history entry has an invalid date');
+
+      const names = (await readdir(versionsDir(proj))).sort();
+      assert.deepEqual(names, [...expected.map(v => `${v}.yaml`), 'registry.yaml'].sort(), 'the folder must hold the ten newest versions and registry.yaml');
+    });
+  });
+
+  it('VersionManager.getHistory lists only version files, and prune keeps ten of eleven', T, async () => {
+    const { VersionManager } = await import(distUrl('core/tools/knowledgeHub/core/VersionManager.js'));
+    await withNested(async ({ proj }) => {
+      const manager = new VersionManager(proj);
+      const failures = [];
+      for (let n = 1; n <= 11; n++) {
+        try {
+          await manager.createVersion({ id: 'INDEX', content: `content ${n}` }, { changes: [`round ${n}`], trigger: 'manual', author: 'system' });
+        } catch (e) {
+          failures.push(`createVersion ${n}: ${e.message}`);
+        }
+      }
+      assert.deepEqual(failures, [], 'every createVersion must succeed');
+
+      const history = await manager.getHistory('INDEX', 999);
+      assert.equal(history.length, 10, `getHistory must list ten versions, got ${history.map(v => v.version).join(', ')}`);
+      assert.ok(history.every(v => VERSION_NAME.test(v.version)), `a history entry is not a version: ${history.map(v => v.version).join(', ')}`);
+      assert.equal(await manager.getLatestVersion('INDEX'), '1.0.10');
+      assert.ok(existsSync(path.join(versionsDir(proj), 'registry.yaml')), 'registry.yaml was removed');
+      assert.ok(!existsSync(path.join(versionsDir(proj), '1.0.0.yaml')), 'the oldest version must be pruned');
+    });
+  });
+});
