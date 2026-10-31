@@ -12,6 +12,10 @@
  *   plain text. `scripts/merge-cursor-config.mjs` now adds the `m7` entry to
  *   the file, keeps every other entry, refuses a file it cannot parse, and
  *   writes no key (the server reads the `.env` in its install directory).
+ * - It also keeps the saved `env` of the old `m7` entry (only `OPENAI_API_KEY`
+ *   and `ANTHROPIC_API_KEY` are dropped), creates its temporary file private
+ *   (mode 600), and refuses a dangling symlink instead of replacing it with a
+ *   regular file.
  *
  * What these tests do not prove, on purpose
  * - Timing cannot be tested honestly in a unit test: the difference between a
@@ -27,7 +31,9 @@
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync,
+} from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -291,7 +297,11 @@ describe('SEC-10: scripts/merge-cursor-config.mjs', () => {
     assert.deepEqual(afterB.mcpServers.third, { url: 'http://127.0.0.1:9999/mcp' });
     assert.equal(afterB.mcpServers.m7.command, 'node');
     assert.deepEqual(afterB.mcpServers.m7.args, [path.join(installDir, 'dist', 'index.js')]);
-    assert.equal(afterB.mcpServers.m7.env?.OLD_ONLY, undefined, 'the old m7 entry is replaced, not extended');
+    // CHANGED on purpose. This line used to assert `OLD_ONLY === undefined`, which pinned
+    // a bug: the installer wiped the saved `env` of the old m7 entry, so a saved
+    // M7_PROJECT_PATH or M7_MESH_* variable disappeared. The saved env is now kept.
+    // command, args and cwd are still replaced (asserted above); only env survives.
+    assert.equal(afterB.mcpServers.m7.env?.OLD_ONLY, '1', 'the saved env of the old m7 entry is kept');
 
     // No file yet (and no directory yet): the file is created with the m7 entry.
     const fresh = path.join(makeDir('cfg-fresh'), 'nested', 'mcp.json');
@@ -343,5 +353,146 @@ describe('SEC-10: scripts/merge-cursor-config.mjs', () => {
     }
     // The other server keeps its own env, even though it holds a "token".
     assert.equal(JSON.parse(text).mcpServers.other.env.SOME_TOKEN, 'belongs-to-the-other-server');
+  });
+
+  it('merge-cursor-config keeps the saved m7 env and drops only the two API keys', () => {
+    const installDir = makeDir('install-env');
+    const saved = {
+      M7_PROJECT_PATH: '/home/me/the-project',
+      M7_MESH_RELAY: 'http://127.0.0.1:8787',
+      M7_MESH_SECRET: 'mesh-secret-the-user-saved',
+      M7_DEBUG: 'true',
+    };
+    const keys = {
+      OPENAI_API_KEY: 'sk-canary-openai-in-old-entry',
+      ANTHROPIC_API_KEY: 'sk-ant-canary-anthropic-in-old-entry',
+    };
+    const { file } = seedConfig('cfg-env', {
+      mcpServers: { other: OTHER_SERVER, m7: { command: 'old', args: ['/old/dist/index.js'], env: { ...saved, ...keys } } },
+    });
+
+    const res = runMerge(file, installDir);
+    assert.equal(res.code, 0, `merge must succeed\nstdout: ${res.stdout}\nstderr: ${res.stderr}`);
+
+    const text = readFileSync(file, 'utf8');
+    const entry = JSON.parse(text).mcpServers.m7;
+    assert.deepEqual(entry.env, saved, 'the saved variables stay, the two API keys go');
+    assert.doesNotMatch(text, /canary/, 'no API key value may be written');
+    assert.equal(entry.command, 'node');
+    assert.deepEqual(entry.args, [path.join(installDir, 'dist', 'index.js')]);
+    assert.equal(entry.cwd, installDir);
+    assert.deepEqual(JSON.parse(text).mcpServers.other, OTHER_SERVER, 'the other server is unchanged');
+  });
+
+  it('merge-cursor-config writes no env block when nothing is left after dropping the keys', () => {
+    const installDir = makeDir('install-env-empty');
+    const odd = {
+      'only the two keys': { OPENAI_API_KEY: 'sk-canary-1', ANTHROPIC_API_KEY: 'sk-ant-canary-2' },
+      'an empty env': {},
+      'env that is not an object (string)': 'OPENAI_API_KEY=sk-canary-3',
+      'env that is not an object (array)': ['sk-canary-4'],
+      'env that is null': null,
+    };
+    for (const [what, env] of Object.entries(odd)) {
+      const { file } = seedConfig(`cfg-env-odd-${Object.keys(odd).indexOf(what)}`, { mcpServers: { m7: { command: 'old', env } } });
+      const res = runMerge(file, installDir);
+      assert.equal(res.code, 0, `${what}: merge must succeed\nstderr: ${res.stderr}`);
+      const text = readFileSync(file, 'utf8');
+      assert.doesNotMatch(text, /canary/, `${what}: no key value may be written`);
+      assert.equal('env' in JSON.parse(text).mcpServers.m7, false, `${what}: the m7 entry must have no env block`);
+    }
+  });
+
+  it('merge-cursor-config refuses a dangling symlink and leaves it alone', () => {
+    const installDir = makeDir('install-dangling');
+    const dir = makeDir('cfg-dangling');
+    const missingTarget = path.join(dir, 'no-such-dir', 'real-mcp.json');
+
+    const dangling = path.join(dir, 'mcp.json');
+    symlinkSync(missingTarget, dangling);
+    const loopA = path.join(dir, 'loop-a.json');
+    const loopB = path.join(dir, 'loop-b.json');
+    symlinkSync(loopB, loopA);
+    symlinkSync(loopA, loopB);
+
+    for (const [what, file, target] of [['dangling link', dangling, missingTarget], ['link loop', loopA, loopB]]) {
+      const res = runMerge(file, installDir);
+      assert.equal(res.code, 2, `${what}: merge must refuse with exit code 2\nstdout: ${res.stdout}\nstderr: ${res.stderr}`);
+      assert.ok(res.stderr.includes(file), `${what}: the reason must go to stderr and name the file\nstderr: ${res.stderr}`);
+      assert.ok(lstatSync(file).isSymbolicLink(), `${what}: the symlink was replaced`);
+      assert.equal(readlinkSync(file), target, `${what}: the symlink now points elsewhere`);
+    }
+    assert.equal(existsSync(path.dirname(missingTarget)), false, 'the script created the directory behind the dangling link');
+    assert.deepEqual(readdirSync(dir).sort(), ['loop-a.json', 'loop-b.json', 'mcp.json'], 'no temporary or extra file may be left behind');
+  });
+
+  it('merge-cursor-config writes through a working symlink and keeps the link', () => {
+    // Control for the dangling-link refusal: a dotfiles manager links mcp.json to a real file.
+    const installDir = makeDir('install-link-ok');
+    const dir = makeDir('cfg-link-ok');
+    const real = path.join(dir, 'real-mcp.json');
+    writeFileSync(real, JSON.stringify({ mcpServers: { other: OTHER_SERVER } }, null, 2));
+    const link = path.join(dir, 'mcp.json');
+    symlinkSync(real, link);
+
+    const res = runMerge(link, installDir);
+    assert.equal(res.code, 0, `merge must succeed\nstdout: ${res.stdout}\nstderr: ${res.stderr}`);
+    assert.ok(lstatSync(link).isSymbolicLink(), 'the symlink was replaced by a regular file');
+    assert.equal(readlinkSync(link), real);
+    const merged = JSON.parse(readFileSync(real, 'utf8'));
+    assert.deepEqual(merged.mcpServers.other, OTHER_SERVER);
+    assert.equal(merged.mcpServers.m7.cwd, installDir);
+    assert.deepEqual(readdirSync(dir).sort(), ['mcp.json', 'real-mcp.json']);
+  });
+
+  it('merge-cursor-config creates its temporary file private, and keeps the mode of the old file', () => {
+    // The temporary file holds the whole mcp.json, which often carries other servers' keys.
+    // It must never be readable by others, not even for the moment before the final mode is
+    // applied. A preload wraps fs.writeFileSync, sets umask 0 (so a missing mode shows up as
+    // 666) and records the real mode of the temporary file right after it is written.
+    const installDir = makeDir('install-mode');
+    const probeDir = makeDir('mode-probe');
+    const probe = path.join(probeDir, 'probe.cjs');
+    const log = path.join(probeDir, 'modes.log');
+    writeFileSync(probe, [
+      "const fs = require('node:fs');",
+      "const { syncBuiltinESMExports } = require('node:module');",
+      'process.umask(0);',
+      'const real = fs.writeFileSync;',
+      'fs.writeFileSync = function (file, ...rest) {',
+      '  const result = real.call(this, file, ...rest);',
+      "  if (String(file).includes('.m7-tmp-')) {",
+      "    fs.appendFileSync(process.env.M7_TEST_MODE_LOG, (fs.statSync(file).mode & 0o777).toString(8) + '\\n');",
+      '  }',
+      '  return result;',
+      '};',
+      'syncBuiltinESMExports();',
+      '',
+    ].join('\n'));
+
+    const runProbed = file => spawnSync(process.execPath, ['--require', probe, MERGE_SCRIPT, file, installDir], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: { ...process.env, HOME: probeDir, USERPROFILE: probeDir, M7_TEST_MODE_LOG: log },
+    });
+
+    // An existing file with mode 640: the final file keeps 640.
+    const existing = seedConfig('cfg-mode-existing', { mcpServers: { other: OTHER_SERVER } });
+    chmodSync(existing.file, 0o640);
+    const resA = runProbed(existing.file);
+    assert.equal(resA.status, 0, `merge must succeed\nstdout: ${resA.stdout}\nstderr: ${resA.stderr}`);
+    assert.equal(statSync(existing.file).mode & 0o777, 0o640, 'the mode of the old file must be kept');
+
+    // A new file: created private.
+    const fresh = path.join(makeDir('cfg-mode-new'), 'mcp.json');
+    const resB = runProbed(fresh);
+    assert.equal(resB.status, 0, `merge must succeed\nstdout: ${resB.stdout}\nstderr: ${resB.stderr}`);
+
+    // The probe saw both temporary files, and each was private when it was written.
+    const seen = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+    assert.equal(seen.length, 2, `the probe must see both temporary files; saw: ${JSON.stringify(seen)}\n${resA.stderr}${resB.stderr}`);
+    assert.deepEqual(seen, ['600', '600'], 'the temporary file was created with a mode other than 600');
+
+    assert.equal(statSync(fresh).mode & 0o777, 0o600, 'a new config file must not be readable by others');
   });
 });

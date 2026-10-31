@@ -19,6 +19,7 @@ import { createM7StructureInternal } from './createStructure.js';
 import { checkSystemHealth, formatHealthStatus } from '../health/index.js';
 import { needsM7Init, needsM7InitNote, initProjectInternal, ColdStartResult } from './initProject.js';
 import { M7_MANAGED_MARKER, writeManagedFile } from '../utils/safeWrite.js';
+import { resolveContainedEntry } from '../security/pathGuard.js';
 import { getProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { scanProjectScope, ScopeContext } from '../scope/index.js';
 import path from 'path';
@@ -893,7 +894,13 @@ Address these risks first, then re-analyze the task.`
 async function updateActiveContext(taskDescription: string, route: string, phase: string): Promise<void> {
   try {
     const projectPath = getProjectPath();
-    const activeContextPath = path.join(projectPath, 'memory-bank', 'activeContext.md');
+    // The memory-bank directory must lie inside the project, also through symlinks. The file
+    // itself is not followed: writeManagedFile still treats a symlink there as the user's.
+    const activeContextPath = await resolveContainedEntry(projectPath, 'memory-bank/activeContext.md');
+    if (activeContextPath === null) {
+      log.debug('memory-bank/activeContext.md is outside the project (symlink); left unchanged');
+      return;
+    }
     
     const timestamp = new Date().toISOString();
     const content = `${M7_MANAGED_MARKER}

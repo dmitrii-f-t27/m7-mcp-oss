@@ -249,6 +249,26 @@ export async function resolveContained(root: string, rel: string): Promise<strin
   return parts.ok ? parts.abs : null;
 }
 
+/** True when `name` can be joined to a directory: not empty, not `.` or `..`, no NUL. */
+export function isPlainEntryName(name: string): boolean {
+  return name !== '' && name !== '.' && name !== '..' && name.indexOf('\0') === -1;
+}
+
+/**
+ * The real path to use for the file `rel` under `root`, or null. The parent directory
+ * is resolved and must lie inside the root (see `resolveContained`), also through
+ * symlinks. The last component is NOT followed: it is returned as named, so a symlink
+ * there stays visible to the caller (`wx`, `O_NOFOLLOW` and `lstat` still see it). Use
+ * this for a file that M7 creates, appends to or rewrites, where the file itself being a
+ * link must not be followed either. `rel` that ends in `.` or `..` is refused.
+ */
+export async function resolveContainedEntry(root: string, rel: string): Promise<string | null> {
+  const name = nodePath.basename(rel);
+  if (!isPlainEntryName(name)) return null;
+  const dir = await resolveContained(root, nodePath.dirname(rel));
+  return dir === null ? null : nodePath.join(dir, name);
+}
+
 export type GuardResult =
   | { ok: true; abs: string; relative: string }
   | { ok: false; reason: string };

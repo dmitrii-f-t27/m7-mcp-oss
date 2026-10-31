@@ -215,6 +215,59 @@ describe('analyze_task in a project that has files', () => {
     });
   });
 
+  // A project whose only files are hidden is still a project: .github, .vscode and .env are the
+  // user's, and a .cursorrules plus an alwaysApply rule would change how the agent behaves.
+  const HIDDEN_ONLY = ['.github/workflows/ci.yml', '.vscode/settings.json', '.env'];
+
+  it('analyze_task in a directory with only .github, .vscode and .env writes nothing', T, async () => {
+    await withDir(() => makeEmptyDir('sec-hidden-only-'), async dir => {
+      await seed(dir, HIDDEN_ONLY);
+      const before = await snapshot(dir);
+
+      const res = await callTool(dir, 'mcp_m7_analyze_task', { task_description: TASK, create_session: false });
+      assert.ok(!res.isError, `analyze_task failed:\n${res.text.slice(0, 400)}`);
+
+      const d = diffSnapshots(before, await snapshot(dir));
+      assert.deepEqual(d, { added: [], removed: [], modified: [] }, `analyze_task changed a directory that holds only hidden project files:\n${JSON.stringify(d, null, 1)}`);
+      assert.ok(!/Cold Start/.test(res.text), 'the answer reports a cold start');
+      assert.match(res.text, /mcp_m7_init_project/, 'the answer must point to mcp_m7_init_project');
+    });
+  });
+
+  it('analyze_task in a directory with only .github, .vscode and .env sets no M7 file up, also with a task folder', T, async () => {
+    await withDir(() => makeEmptyDir('sec-hidden-only-session-'), async dir => {
+      await seed(dir, HIDDEN_ONLY);
+      const before = await snapshot(dir);
+
+      const res = await callTool(dir, 'mcp_m7_analyze_task', { task_description: TASK });
+      assert.ok(!res.isError, `analyze_task failed:\n${res.text.slice(0, 400)}`);
+
+      const d = diffSnapshots(before, await snapshot(dir));
+      assert.deepEqual(d.modified, [], `analyze_task changed existing files:\n${d.modified.join('\n')}`);
+      assert.deepEqual(d.removed, [], `analyze_task removed files:\n${d.removed.join('\n')}`);
+      const reported = reportedStructure(res.text).map(r => r.path).sort();
+      assert.deepEqual(d.added.filter(p => !p.endsWith('/')), reported, 'the only files added are the ones the answer reports');
+      for (const rel of SEEDED_BY_INIT) {
+        assert.ok(!existsSync(path.join(dir, rel)), `${rel} was created in a directory that holds only hidden project files`);
+      }
+      assert.ok(!existsSync(path.join(dir, '.cursor')), '.cursor/ was created');
+      assert.ok(!existsSync(path.join(dir, 'memory-bank')), 'memory-bank/ was created');
+    });
+  });
+
+  it('init_project without force refuses a directory with only .github, .vscode and .env', T, async () => {
+    await withDir(() => makeEmptyDir('sec-hidden-only-init-'), async dir => {
+      await seed(dir, HIDDEN_ONLY);
+      const before = await snapshot(dir);
+
+      const res = await callTool(dir, 'mcp_m7_init_project', {});
+      assert.equal(res.isError, true, `init_project must refuse:\n${res.text.slice(0, 400)}`);
+      assert.match(res.text, /Not Empty/i);
+      const d = diffSnapshots(before, await snapshot(dir));
+      assert.deepEqual(d, { added: [], removed: [], modified: [] }, `init_project wrote files:\n${JSON.stringify(d, null, 1)}`);
+    });
+  });
+
   it('analyze_task leaves a foreign memory-bank/activeContext.md alone', T, async () => {
     await withDir(() => makeProject('sec-foreign-ctx-'), async dir => {
       await seed(dir, ['memory-bank/activeContext.md']);
@@ -279,17 +332,20 @@ describe('analyze_task in an empty directory', () => {
     });
   });
 
-  it('analyze_task in a directory holding only a hidden .cursorrules keeps it and lists it as skipped', T, async () => {
+  // CHANGED on purpose. This test used to be 'analyze_task in a directory holding only a hidden
+  // .cursorrules keeps it and lists it as skipped'. It expected the cold start to run in that
+  // directory and to skip the one file that exists. That pinned the bug: a hidden name such as
+  // .cursorrules, .github, .vscode or .env is the user's, so a directory that holds one is not
+  // empty. The cold start must not run there at all, so nothing is skipped and nothing is created.
+  it('analyze_task in a directory holding only a hidden .cursorrules does not set the project up and keeps the file', T, async () => {
     await withDir(() => makeEmptyDir('sec-hidden-'), async dir => {
       await seed(dir, ['.cursorrules']);
-      const res = await callTool(dir, 'mcp_m7_analyze_task', { task_description: TASK });
+      const res = await callTool(dir, 'mcp_m7_analyze_task', { task_description: TASK, create_session: false });
 
       assert.equal(await readFile(path.join(dir, '.cursorrules'), 'utf8'), foreignText('.cursorrules'), '.cursorrules was overwritten');
-      const { created, skipped } = splitAtSkipped(res.text);
-      assert.ok(skipped, 'the Cold Start answer has no Skipped section');
-      assert.ok(skipped.includes('.cursorrules'), `.cursorrules is not listed as skipped:\n${skipped.slice(0, 400)}`);
-      assert.ok(!/^- ✅ \.cursorrules$/m.test(created), '.cursorrules is listed as created');
-      assert.ok(existsSync(path.join(dir, 'README.md')), 'the other files must still be created');
+      assert.ok(!/Cold Start/.test(res.text), 'the cold start ran in a directory that holds a .cursorrules');
+      const written = (await readdir(dir)).filter(n => !SKIP_TOP.has(n));
+      assert.deepEqual(written, ['.cursorrules'], `analyze_task wrote files next to the user's .cursorrules: ${written.join(', ')}`);
     });
   });
 });
@@ -731,13 +787,28 @@ describe('safeWrite: pure rules', () => {
 });
 
 describe('initProject: pure rules and directory checks', () => {
-  it('isEmptyListing ignores hidden names and counts every other name', async () => {
+  // CHANGED on purpose. This test used to be 'isEmptyListing ignores hidden names and counts every
+  // other name', and it asserted that ['.git', '.cursorrules', '.DS_Store'] is empty. That pinned the
+  // bug: every name that starts with a dot was ignored, so a directory with only .github, .vscode or
+  // .env counted as empty and got a cold start. Empty now means only .git, .gitignore, .DS_Store and .m7.
+  it('isEmptyListing ignores only .git, .gitignore, .DS_Store and .m7', async () => {
     const { isEmptyListing } = await loadInitProject();
     assert.equal(isEmptyListing([]), true);
-    assert.equal(isEmptyListing(['.git', '.cursorrules', '.DS_Store']), true);
+    assert.equal(isEmptyListing(['.git']), true);
+    assert.equal(isEmptyListing(['.git', '.gitignore', '.DS_Store', '.m7']), true);
+    assert.equal(isEmptyListing(['.m7', '.DS_Store']), true);
+    assert.equal(isEmptyListing(['.git', '.cursorrules', '.DS_Store']), false, '.cursorrules is the user\'s file');
+    for (const name of ['.github', '.vscode', '.env', '.cursorrules', '.cursor', '.claude', '.npmrc', '.gitattributes', '.eslintrc', '.hidden']) {
+      assert.equal(isEmptyListing([name]), false, `${name} alone must make the directory non-empty`);
+      assert.equal(isEmptyListing(['.git', name]), false, `${name} next to .git must make the directory non-empty`);
+    }
+    assert.equal(isEmptyListing(['.github', '.vscode', '.env']), false);
     assert.equal(isEmptyListing(['package.json']), false);
     assert.equal(isEmptyListing(['src']), false);
     assert.equal(isEmptyListing(['.git', 'README.md']), false);
+    // Names are compared exactly: a look-alike is a different file.
+    assert.equal(isEmptyListing(['.GIT']), false);
+    assert.equal(isEmptyListing(['.gitignore.bak']), false);
   });
 
   it('needsInitNoteFor is true only for a non-empty directory with neither memory-bank nor .cursorrules', async () => {
@@ -764,6 +835,23 @@ describe('initProject: pure rules and directory checks', () => {
     await withDir(() => makeEmptyDir('sec-needs2-'), async dir => {
       await mkdir(path.join(dir, 'src'));
       assert.equal(await needsM7Init(dir), false, 'a source directory makes it a real project');
+    });
+  });
+
+  it('needsM7Init and isDirectoryEmpty are false for a directory with only hidden project files', async () => {
+    const { needsM7Init, isDirectoryEmpty } = await loadInitProject();
+    await withDir(() => makeEmptyDir('sec-needs-hidden-'), async dir => {
+      await mkdir(path.join(dir, '.github'));
+      await mkdir(path.join(dir, '.vscode'));
+      await writeFile(path.join(dir, '.env'), 'KEY=value\n');
+      assert.equal(await needsM7Init(dir), false, '.github, .vscode and .env make it a real project');
+      assert.equal(await isDirectoryEmpty(dir), false);
+    });
+    await withDir(() => makeEmptyDir('sec-needs-m7-'), async dir => {
+      await mkdir(path.join(dir, '.m7'));
+      await mkdir(path.join(dir, '.git'));
+      await writeFile(path.join(dir, '.DS_Store'), '');
+      assert.equal(await needsM7Init(dir), true, '.m7, .git and .DS_Store do not make it a real project');
     });
   });
 

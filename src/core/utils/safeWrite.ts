@@ -82,6 +82,19 @@ export async function pathExistsNoFollow(absPath: string): Promise<boolean> {
 }
 
 /**
+ * True when the last component of `absPath` is a symlink, dangling or not. A missing
+ * path is not a symlink. Fails closed: an error other than "not there" counts as a link,
+ * so the caller refuses to write.
+ */
+export async function isSymlinkNoFollow(absPath: string): Promise<boolean> {
+  try {
+    return (await fs.lstat(absPath)).isSymbolicLink();
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ENOENT';
+  }
+}
+
+/**
  * Read the state of a file from disk. Fails closed: a symlink, a directory or a
  * file that cannot be read is 'foreign'. Only a missing file is 'absent'.
  */

@@ -17,7 +17,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -200,6 +200,192 @@ describe('create_structure containment', () => {
 });
 
 // ---------------------------------------------------------------------------
+// init_project, the cold start, analyze_task and the cycle summary: symlinks
+// ---------------------------------------------------------------------------
+
+// `wx` refuses to replace a file, even through a symlink at the final component, but it
+// does not protect the parent directories, and a read-then-rewrite follows a link at the
+// final component. Each case below plants a symlink in the project that leads outside
+// and checks that the outside directory and the outside file stay as they were.
+
+const OUTSIDE_FILE_TEXT = 'OUTSIDE ORIGINAL\n';
+const MARKER = '<!-- m7-managed -->';
+
+/** Start a cycle through the tool and return its task id. */
+async function startCycleViaTool(server, description) {
+  const res = await server.call('mcp_m7_cycle', { task_description: description });
+  const m = /task_id="(cycle_[^"]+)"/.exec(res.text);
+  assert.ok(m, `no task id in:\n${res.text.slice(0, 400)}`);
+  return m[1];
+}
+
+describe('init_project does not write through a symlinked directory', () => {
+  for (const layout of ['memory-bank', '.cursor', 'docs']) {
+    it(`init_project with force does not follow a ${layout} symlink leaving the project`, T, async () => {
+      await withNested(async ({ outer, proj, outside }) => {
+        await symlink(outside, path.join(proj, layout));
+        const res = await callTool(proj, 'mcp_m7_init_project', { force: true });
+        assert.deepEqual(await listTree(outside), [], `[${layout} -> outside] init_project wrote into the outside directory`);
+        assert.deepEqual((await readdir(outer)).sort(), ['outside', 'proj'], `[${layout} -> outside] init_project created entries next to the project`);
+        assert.equal(res.isError, true, `[${layout} -> outside] the call must fail loudly:\n${res.text.slice(0, 400)}`);
+        assert.match(res.text, /outside the project/i, `[${layout} -> outside] the answer must say why:\n${res.text.slice(0, 400)}`);
+      });
+    });
+  }
+});
+
+describe('.gitignore is never written through a symlink', () => {
+  /** The three kinds of link: to an existing outside file, to a missing outside path, to a file inside. */
+  const kinds = {
+    'a link to an existing file outside the project': async ({ proj, outside }) => {
+      await writeFile(path.join(outside, 'zshrc'), OUTSIDE_FILE_TEXT);
+      await symlink(path.join(outside, 'zshrc'), path.join(proj, '.gitignore'));
+      return { watched: path.join(outside, 'zshrc'), want: OUTSIDE_FILE_TEXT, target: path.join(outside, 'zshrc') };
+    },
+    'a dangling link to a path outside the project': async ({ proj, outside }) => {
+      await symlink(path.join(outside, 'not-yet'), path.join(proj, '.gitignore'));
+      return { watched: path.join(outside, 'not-yet'), want: null, target: path.join(outside, 'not-yet') };
+    },
+  };
+
+  for (const [what, plant] of Object.entries(kinds)) {
+    it(`the cold start in an empty directory leaves .gitignore alone when it is ${what}`, T, async () => {
+      await withNested(async nested => {
+        await rm(path.join(nested.proj, 'package.json')); // an empty project: only the link
+        const { watched, want, target } = await plant(nested);
+        await callTool(nested.proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+
+        if (want === null) assert.equal(existsSync(watched), false, 'the cold start created a file outside the project through .gitignore');
+        else assert.equal(await readFile(watched, 'utf8'), want, 'the cold start appended to a file outside the project through .gitignore');
+        assert.ok((await lstat(path.join(nested.proj, '.gitignore'))).isSymbolicLink(), '.gitignore was replaced by a regular file');
+        assert.equal(await readlink(path.join(nested.proj, '.gitignore')), target, '.gitignore now points elsewhere');
+        // INDEX.md is written after the project structure step, where .gitignore is handled.
+        assert.ok(existsSync(path.join(nested.proj, 'INDEX.md')), 'a link as .gitignore must not stop the rest of the setup');
+      });
+    });
+  }
+
+  it('init_project with force leaves .gitignore alone when it is a link to a file inside the project, and lists it as skipped', T, async () => {
+    await withNested(async ({ proj }) => {
+      await writeFile(path.join(proj, 'shared-gitignore'), 'node_modules\n');
+      await symlink(path.join(proj, 'shared-gitignore'), path.join(proj, '.gitignore'));
+      const res = await callTool(proj, 'mcp_m7_init_project', { force: true });
+      assert.ok(!res.isError, `init_project failed:\n${res.text.slice(0, 400)}`);
+      assert.equal(await readFile(path.join(proj, 'shared-gitignore'), 'utf8'), 'node_modules\n', 'init_project appended to the link target');
+      assert.ok((await lstat(path.join(proj, '.gitignore'))).isSymbolicLink(), '.gitignore was replaced by a regular file');
+      const heading = /^#{2,3} .*Skipped.*$/m.exec(res.text);
+      assert.ok(heading && res.text.slice(heading.index).includes('**.gitignore**'), `.gitignore must be listed as skipped:\n${res.text.slice(0, 800)}`);
+    });
+  });
+
+  it('init_project still adds .m7/ to a regular .gitignore, once', T, async () => {
+    await withNested(async ({ proj }) => {
+      await writeFile(path.join(proj, '.gitignore'), 'node_modules\n');
+      await callTool(proj, 'mcp_m7_init_project', { force: true });
+      await callTool(proj, 'mcp_m7_init_project', { force: true });
+      const text = await readFile(path.join(proj, '.gitignore'), 'utf8');
+      assert.ok(text.startsWith('node_modules\n'), 'the old lines must stay');
+      assert.equal(text.split('.m7/').length - 1, 1, `.m7/ must be there exactly once:\n${text}`);
+    });
+  });
+});
+
+describe('analyze_task does not write activeContext.md through a symlinked memory-bank', () => {
+  // Absent outside: the file would be created. Present with the M7 marker: it would count as
+  // managed and be rewritten.
+  const variants = {
+    'no activeContext.md outside': null,
+    'a managed activeContext.md outside': `${MARKER}\n# Active Context\n\nOUTSIDE OLD TEXT\n`,
+  };
+  for (const [what, outsideText] of Object.entries(variants)) {
+    it(`a memory-bank link leaving the project with ${what}: nothing is created or rewritten outside`, T, async () => {
+      await withNested(async ({ proj, outside }) => {
+        await writeFile(path.join(proj, 'README.md'), 'a user project\n');
+        await symlink(outside, path.join(proj, 'memory-bank'));
+        if (outsideText !== null) await writeFile(path.join(outside, 'activeContext.md'), outsideText);
+
+        await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 1000 });
+
+        if (outsideText === null) {
+          assert.deepEqual(await listTree(outside), [], 'analyze_task created a file outside the project');
+        } else {
+          assert.deepEqual(await listTree(outside), ['activeContext.md']);
+          assert.equal(await readFile(path.join(outside, 'activeContext.md'), 'utf8'), outsideText, 'analyze_task rewrote a file outside the project');
+        }
+      });
+    });
+  }
+
+  it('a regular memory-bank with a managed activeContext.md is still updated', T, async () => {
+    await withNested(async ({ proj }) => {
+      await writeFile(path.join(proj, 'README.md'), 'a user project\n');
+      await mkdir(path.join(proj, 'memory-bank'));
+      await writeFile(path.join(proj, 'memory-bank/activeContext.md'), `${MARKER}\n# Active Context\n\nOLD TEXT\n`);
+      await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 1000 });
+      const after = await readFile(path.join(proj, 'memory-bank/activeContext.md'), 'utf8');
+      assert.ok(after.includes(TASK.slice(0, 40)), `the update did not land:\n${after}`);
+      assert.ok(!after.includes('OLD TEXT') && after.includes(MARKER));
+    });
+  });
+});
+
+describe('the cycle summary does not write CYCLE_REGISTRY.md through a symlink', () => {
+  const kinds = {
+    'a link to an existing file outside the project': async ({ proj, outside }) => {
+      await writeFile(path.join(outside, 'registry.md'), OUTSIDE_FILE_TEXT);
+      await symlink(path.join(outside, 'registry.md'), path.join(proj, 'CYCLE_REGISTRY.md'));
+      return { watched: path.join(outside, 'registry.md'), want: OUTSIDE_FILE_TEXT };
+    },
+    'a dangling link to a path outside the project': async ({ proj, outside }) => {
+      await symlink(path.join(outside, 'not-yet.md'), path.join(proj, 'CYCLE_REGISTRY.md'));
+      return { watched: path.join(outside, 'not-yet.md'), want: null };
+    },
+    'a link to a file inside the project': async ({ proj }) => {
+      await writeFile(path.join(proj, 'registry-real.md'), OUTSIDE_FILE_TEXT);
+      await symlink(path.join(proj, 'registry-real.md'), path.join(proj, 'CYCLE_REGISTRY.md'));
+      return { watched: path.join(proj, 'registry-real.md'), want: OUTSIDE_FILE_TEXT };
+    },
+  };
+
+  for (const [what, plant] of Object.entries(kinds)) {
+    it(`mcp_m7_cycle with a summary refuses when CYCLE_REGISTRY.md is ${what}`, T, async () => {
+      await withNested(async nested => {
+        const s = await startServer(nested.proj);
+        try {
+          const taskId = await startCycleViaTool(s, 'registry symlink probe');
+          const { watched, want } = await plant(nested);
+          const res = await s.call('mcp_m7_cycle', { task_id: taskId, summary: 'registry probe summary' });
+          await sleep(300);
+
+          if (want === null) assert.equal(existsSync(watched), false, 'the summary created a file through the link');
+          else assert.equal(await readFile(watched, 'utf8'), want, 'the summary rewrote the link target');
+          assert.ok((await lstat(path.join(nested.proj, 'CYCLE_REGISTRY.md'))).isSymbolicLink(), 'CYCLE_REGISTRY.md was replaced by a regular file');
+          assert.equal(res.isError, true, `the call must fail loudly:\n${res.text.slice(0, 400)}`);
+          assert.match(res.text, /CYCLE_REGISTRY\.md/, `the answer must name the file:\n${res.text.slice(0, 400)}`);
+        } finally {
+          await s.stop('close');
+        }
+      });
+    });
+  }
+
+  it('mcp_m7_cycle with a summary still writes a regular CYCLE_REGISTRY.md', T, async () => {
+    await withNested(async ({ proj }) => {
+      const s = await startServer(proj);
+      try {
+        const taskId = await startCycleViaTool(s, 'registry regular probe');
+        const res = await s.call('mcp_m7_cycle', { task_id: taskId, summary: 'registry probe summary' });
+        assert.ok(!res.isError, `the summary failed:\n${res.text.slice(0, 400)}`);
+        const registry = await readFile(path.join(proj, 'CYCLE_REGISTRY.md'), 'utf8');
+        assert.match(registry, /registry probe summary/);
+      } finally {
+        await s.stop('close');
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // grounding gate
 // ---------------------------------------------------------------------------
 
@@ -305,6 +491,35 @@ describe('pathGuard containment rules', () => {
       for (const rel of refused) assert.equal(await resolveContained(proj, rel), null, `resolveContained(${JSON.stringify(rel)}) must be refused`);
 
       assert.equal(await resolveContained(path.join(outer, 'does-not-exist'), 'x'), null, 'a root that cannot be resolved gives null');
+    });
+  });
+
+  it('resolveContainedEntry contains the parent directory and does not follow the last component', async () => {
+    const { resolveContainedEntry } = await import(distUrl('core/security/pathGuard.js'));
+    await withNested(async ({ outer, proj, outside }) => {
+      await mkdir(path.join(proj, 'sub'));
+      await writeFile(path.join(outside, 'o.txt'), 'x');
+      await symlink(outside, path.join(proj, 'link-out'));
+      await symlink(path.join(outside, 'o.txt'), path.join(proj, 'leaf-out'));
+      await symlink(path.join(outer, 'nowhere'), path.join(proj, 'dangling'));
+      const real = await realpath(proj);
+
+      const ok = {
+        'file.txt': path.join(real, 'file.txt'),
+        'sub/file.txt': path.join(real, 'sub/file.txt'),
+        'new/deeper/file.txt': path.join(real, 'new/deeper/file.txt'),
+        // The last component is not followed: a link stays a link in the answer.
+        'leaf-out': path.join(real, 'leaf-out'),
+        dangling: path.join(real, 'dangling'),
+        [path.join(proj, 'sub/file.txt')]: path.join(real, 'sub/file.txt'),
+      };
+      for (const [rel, want] of Object.entries(ok)) assert.equal(await resolveContainedEntry(proj, rel), want, `resolveContainedEntry(${JSON.stringify(rel)})`);
+
+      const refused = [
+        '', '.', '..', 'sub/..', 'sub/.', '../x', 'sub/../../x', 'link-out/x.txt', 'link-out/new/x.txt',
+        'bad\0name', 'sub/bad\0name', path.join(outside, 'o.txt'), `${proj}-evil/x`, '/etc/passwd',
+      ];
+      for (const rel of refused) assert.equal(await resolveContainedEntry(proj, rel), null, `resolveContainedEntry(${JSON.stringify(rel)}) must be refused`);
     });
   });
 });

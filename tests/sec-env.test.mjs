@@ -11,6 +11,11 @@
  * After the fix the server reads one file: `.env` in its install directory, the
  * parent of `dist/`. The process environment still wins over that file.
  *
+ * The server entry point must call `loadInstallEnv(import.meta.url)`. The
+ * functions are tested on their own below, which would still pass if that call
+ * were deleted from `src/index.ts`. The wiring test starts `dist/index.js` from a
+ * temporary install tree, so the call is exercised end to end.
+ *
  * Network rules of this file: nothing leaves the machine. The child server gets
  * placeholder keys only from the test's own `.env` text, and its OpenAI and
  * Anthropic base URLs point to a stub on 127.0.0.1. A real `.env` is never
@@ -22,7 +27,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -187,5 +192,69 @@ describe('SEC-8: the install directory', () => {
     const target = { KEEP: 'yes' };
     assert.doesNotThrow(() => loadInstallEnv(entryUrl, target));
     assert.deepEqual(target, { KEEP: 'yes' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The wiring: dist/index.js calls loadInstallEnv for its own install directory
+// ---------------------------------------------------------------------------
+
+describe('SEC-8: the entry point reads the install-directory .env', () => {
+  it('a server started from an install tree gets its keys from that tree\'s .env', { timeout: 60_000 }, async () => {
+    // A temporary install directory holds the .env and symlinks to the built server and its
+    // dependencies. Node is started with --preserve-symlinks-main, so `import.meta.url` of
+    // dist/index.js is the path inside this tree (not the real dist/ of the repository), and
+    // the .env next to it is the only place the keys can come from: the child environment
+    // has no key, and its working directory is another empty directory.
+    const installDir = makeDir('wired-install');
+    symlinkSync(path.join(REPO_ROOT, 'dist'), path.join(installDir, 'dist'), 'dir');
+    symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(installDir, 'node_modules'), 'dir');
+    symlinkSync(path.join(REPO_ROOT, 'package.json'), path.join(installDir, 'package.json'), 'file'); // "type": "module"
+    writeFileSync(path.join(installDir, '.env'), ENV_FILE_TEXT);
+    const cwd = makeDir('wired-cwd');
+
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ['--preserve-symlinks', '--preserve-symlinks-main', path.join(installDir, 'dist', 'index.js')],
+      cwd,
+      stderr: 'pipe',
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: cwd,
+        TMPDIR: cwd,
+        CURSOR_WORKSPACE: cwd,
+        M7_PROJECT_PATH: cwd,
+        M7_DEBUG: 'true',
+        OPENAI_BASE_URL: `${stubUrl}/v1`,
+        ANTHROPIC_BASE_URL: stubUrl,
+      },
+    });
+    let stderr = '';
+    transport.stderr?.on('data', (d) => {
+      stderr += d;
+    });
+    const client = new Client({ name: 'sec-env-wiring', version: '0.0.0' }, { capabilities: {} });
+
+    try {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`the server did not answer initialize within ${EXIT_WAIT_MS} ms`)), EXIT_WAIT_MS);
+      });
+      try {
+        await Promise.race([client.connect(transport), timeout]);
+      } catch (error) {
+        assert.fail(
+          'the server did not start from an install tree that holds the .env: dist/index.js does not load the install-directory .env\n' +
+            `${error instanceof Error ? error.message : String(error)}\nstderr tail: ${stderr.slice(-400)}`,
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      assert.ok(client.getServerVersion(), 'the server answered initialize without a version');
+    } finally {
+      await client.close().catch(() => {});
+    }
   });
 });

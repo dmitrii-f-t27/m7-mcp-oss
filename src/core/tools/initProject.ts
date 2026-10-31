@@ -8,7 +8,8 @@ import * as path from 'path';
 import { existsSync } from 'fs';
 import { getProjectPath, applyProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { createM7StructureInternal } from './createStructure.js';
-import { M7_MANAGED_MARKER, pathExistsNoFollow, writeIfAbsent } from '../utils/safeWrite.js';
+import { M7_MANAGED_MARKER, isSymlinkNoFollow, pathExistsNoFollow, writeIfAbsent } from '../utils/safeWrite.js';
+import { resolveContained, resolveContainedEntry } from '../security/pathGuard.js';
 // v5.0: Use UnifiedMemoryCore instead of MemorySystem
 import { getMemoryCore, UnifiedMemoryCore } from '../../memory/auto/unified-memory-core.js';
 
@@ -36,6 +37,8 @@ type FileEntry = { path: string; description: string };
 /**
  * Write one project file only when it is absent.
  * A file that already exists is never touched; it goes to `skippedFiles`.
+ * The parent directory must lie inside the project, also through symlinks: a
+ * `memory-bank` that links out of the project is refused. `wx` covers the file itself.
  */
 async function createFile(
   currentDir: string,
@@ -45,8 +48,17 @@ async function createFile(
   createdFiles: FileEntry[],
   skippedFiles: FileEntry[]
 ): Promise<void> {
-  const outcome = await writeIfAbsent(path.join(currentDir, relPath), content);
+  const absPath = await resolveContainedEntry(currentDir, relPath);
+  if (absPath === null) throw new Error(`Refusing to write outside the project: ${relPath}`);
+  const outcome = await writeIfAbsent(absPath, content);
   (outcome === 'created' ? createdFiles : skippedFiles).push({ path: relPath, description });
+}
+
+/** Make a project directory, after checking that it lies inside the project (also through symlinks). */
+async function makeContainedDir(currentDir: string, relDir: string): Promise<void> {
+  const absDir = await resolveContained(currentDir, relDir);
+  if (absDir === null) throw new Error(`Refusing to write outside the project: ${relDir}`);
+  await fs.mkdir(absDir, { recursive: true });
 }
 
 const InitProjectRequestSchema = z.object({
@@ -205,20 +217,21 @@ Please check permissions and try again.`
   }
 };
 
+/** The only names that do not make a directory a project: git bookkeeping, the Finder file, M7's own data folder. */
+const NOT_PROJECT_FILES = ['.git', '.gitignore', '.DS_Store', '.m7'];
+
 /**
  * Pure: is a directory with these entry names empty for M7?
- * Hidden names (.git, .gitignore, .DS_Store, ...) do not make a project real.
+ * Only `.git`, `.gitignore`, `.DS_Store` and `.m7` are ignored. Every other name,
+ * hidden or not (`.github`, `.vscode`, `.env`, `.cursorrules`, ...), is the user's
+ * work, so the directory is a project and M7 sets nothing up in it on its own.
  */
 export function isEmptyListing(names: string[]): boolean {
-  const relevant = names.filter(name =>
-    !name.startsWith('.') ||
-    ['package.json', 'README.md', 'tsconfig.json'].includes(name)
-  );
-  return relevant.length === 0;
+  return names.every(name => NOT_PROJECT_FILES.includes(name));
 }
 
 /**
- * Check if directory is empty or contains only hidden files
+ * Check if the directory is empty for M7 (see `isEmptyListing`).
  * Exported for use in analyzeTask cold start detection
  * A directory that cannot be read is NOT empty: M7 writes nothing into it.
  */
@@ -377,8 +390,7 @@ async function createMemoryBank(
   createdFiles: FileEntry[],
   skippedFiles: FileEntry[]
 ) {
-  const memoryBankDir = path.join(currentDir, 'memory-bank');
-  await fs.mkdir(memoryBankDir, { recursive: true });
+  await makeContainedDir(currentDir, 'memory-bank');
 
   // Project Brief (Foundation)
   const projectBrief = `# Project Brief: ${projectName}
@@ -682,8 +694,7 @@ async function createKnowledgeSystem(
   skippedFiles: FileEntry[]
 ) {
   // 1. Create .cursor/rules/m7-memory.mdc
-  const cursorRulesDir = path.join(currentDir, '.cursor', 'rules');
-  await fs.mkdir(cursorRulesDir, { recursive: true });
+  await makeContainedDir(currentDir, '.cursor/rules');
 
   const mdcContent = `---
 description: M7 project knowledge system — reference files index
@@ -847,18 +858,12 @@ async function createProjectStructure(
   skippedFiles: FileEntry[]
 ) {
   // Create docs structure
-  const docsDir = path.join(currentDir, 'docs');
-  await fs.mkdir(docsDir, { recursive: true });
-  
-  const featuresDir = path.join(docsDir, 'features');
-  await fs.mkdir(featuresDir, { recursive: true });
-  
-  const debugDir = path.join(docsDir, 'debug');
-  await fs.mkdir(debugDir, { recursive: true });
+  await makeContainedDir(currentDir, 'docs');
+  await makeContainedDir(currentDir, 'docs/features');
+  await makeContainedDir(currentDir, 'docs/debug');
 
   // Create .m7 directory for M7 system data (project-specific)
-  const m7Dir = path.join(currentDir, '.m7');
-  await fs.mkdir(m7Dir, { recursive: true });
+  await makeContainedDir(currentDir, '.m7');
 
   // Create README with M7 information (for humans)
   const readme = `# ${path.basename(currentDir)}
@@ -895,21 +900,33 @@ Follow the **Discovery → Architecture → Planning → Implementation** cycle 
 
   await createFile(currentDir, 'README.md', readme, 'Project documentation (for humans)', createdFiles, skippedFiles);
 
-  // Create or update .gitignore to exclude .m7/ directory
-  const gitignorePath = path.join(currentDir, '.gitignore');
-  let gitignoreContent = '';
-  
-  try {
-    const existingGitignore = await fs.readFile(gitignorePath, 'utf-8');
-    gitignoreContent = existingGitignore;
-  } catch {
-    // File doesn't exist, will create new one
-  }
+  // Create or update .gitignore to exclude .m7/ directory.
+  // A .gitignore that is a symlink is left alone and not even read: it may lead out of the
+  // project (a write would change a file elsewhere) or to a device. Only a regular file
+  // (or none) gets the line.
+  const gitignorePath = await resolveContainedEntry(currentDir, '.gitignore');
+  if (gitignorePath === null) throw new Error('Refusing to write outside the project: .gitignore');
 
-  if (!gitignoreContent.includes('.m7/')) {
-    gitignoreContent += '\n# M7 MCP System Data (project-specific)\n.m7/\n';
-    await fs.writeFile(gitignorePath, gitignoreContent);
-    createdFiles.push({path: '.gitignore', description: 'Updated to exclude .m7/ directory'});
+  if (await isSymlinkNoFollow(gitignorePath)) {
+    skippedFiles.push({
+      path: '.gitignore',
+      description: 'Is a symbolic link; M7 does not write through it. Add .m7/ to the file it points to if you want M7 data ignored'
+    });
+  } else {
+    let gitignoreContent = '';
+
+    try {
+      const existingGitignore = await fs.readFile(gitignorePath, 'utf-8');
+      gitignoreContent = existingGitignore;
+    } catch {
+      // File doesn't exist, will create new one
+    }
+
+    if (!gitignoreContent.includes('.m7/')) {
+      gitignoreContent += '\n# M7 MCP System Data (project-specific)\n.m7/\n';
+      await fs.writeFile(gitignorePath, gitignoreContent);
+      createdFiles.push({path: '.gitignore', description: 'Updated to exclude .m7/ directory'});
+    }
   }
 
   // Add directory structure markers

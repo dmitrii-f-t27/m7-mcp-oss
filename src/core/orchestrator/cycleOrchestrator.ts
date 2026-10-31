@@ -10,6 +10,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash, randomBytes } from 'node:crypto';
 import { getProjectPath } from '../utils/projectPath.js';
+import { resolveContainedEntry } from '../security/pathGuard.js';
+import { isSymlinkNoFollow } from '../utils/safeWrite.js';
 import { atomicWriteJSON, safeReadJSON } from '../utils/atomicWrite.js';
 import { StatePersistError } from '../errors/statePersist.js';
 const CYCLES_DIR = 'm7-cycles';
@@ -1579,7 +1581,18 @@ ${progressBar}`.trim();
       return { success: false, error: `Cycle ${taskId} not found` };
     }
     
-    const registryPath = path.join(state.projectPath, 'CYCLE_REGISTRY.md');
+    // The registry is read and rewritten in place, so it must be a regular file inside the project.
+    // A symlink (to a file outside the project, or a missing one) is not followed.
+    const registryPath = await resolveContainedEntry(state.projectPath, 'CYCLE_REGISTRY.md');
+    if (registryPath === null) {
+      return { success: false, error: 'Refusing to write outside the project: CYCLE_REGISTRY.md' };
+    }
+    if (await isSymlinkNoFollow(registryPath)) {
+      return {
+        success: false,
+        error: 'CYCLE_REGISTRY.md is a symbolic link. M7 does not write through it. Replace it with a regular file, or remove the link.'
+      };
+    }
     
     const type = state.taskSlug.startsWith('feat') ? 'feat' : 'cycle';
     const folder = `${CYCLES_DIR}/${state.taskSlug}`;
