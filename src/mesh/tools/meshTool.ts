@@ -21,7 +21,9 @@ import type { ContextType, IntentType, MeshPeerContext } from '../types.js';
 import { getProjectPath } from '../../core/utils/projectPath.js';
 import { guardPath, pullRefusal, pushRefusal } from '../../core/security/pathGuard.js';
 import { writeIfAbsent } from '../../core/utils/safeWrite.js';
-import { PEER_HEADER, peerBlock, peerLine } from '../peerText.js';
+import {
+  peerLine, plainNumber, untrusted, untrustedBlock, untrustedId, untrustedList, untrustedOr, withPeerHeader,
+} from '../peerText.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -103,61 +105,8 @@ function timeAgo(ms: number): string {
 
 // ─── Peer text (SEC-7) ──────────────────────────────────────────────────────
 // Every value that comes from another workstation or instance goes through one of
-// the functions below before it reaches the output. Marking lowers the risk of
-// prompt injection; it does not prevent it.
-
-/** Cut clean text to `max` UTF-16 units, never in the middle of a surrogate pair. */
-function cutText(clean: string, max: number): string {
-  if (clean.length <= max) return clean;
-  let end = max;
-  const last = clean.charCodeAt(end - 1);
-  if (last >= 0xd800 && last <= 0xdbff) end--;
-  return clean.slice(0, end);
-}
-
-/** Put clean text between the <<< >>> marks. A space keeps the text from touching a mark. */
-function wrapMarked(clean: string): string {
-  return '<<<' + (clean.startsWith('<') ? ' ' : '') + clean + (clean.endsWith('>') ? ' ' : '') + '>>>';
-}
-
-/** Inline peer value: one line, marked. With `max` it is cut, and `...` shows the cut. */
-function untrusted(value: unknown, max?: number): string {
-  const clean = peerLine(value);
-  if (max === undefined || clean.length <= max) return wrapMarked(clean);
-  return wrapMarked(cutText(clean, max) + '...');
-}
-
-/** Peer value, or `fallback` (plain text) when the peer sent nothing. */
-function untrustedOr(value: unknown, fallback: string, max?: number): string {
-  return value === undefined || value === null || value === '' ? fallback : untrusted(value, max);
-}
-
-/** Instance id as shown to the user: first 12 characters, marked, then `...`. */
-function untrustedId(value: unknown): string {
-  return wrapMarked(cutText(peerLine(value), 12)) + '...';
-}
-
-/** List from a peer: every element marked on its own. */
-function untrustedList(value: unknown): string {
-  return Array.isArray(value) ? value.map(v => untrusted(v)).join(', ') : untrusted(value);
-}
-
-/** Peer text with newlines, between two fence lines of its own. */
-function untrustedBlock(value: unknown): string {
-  const body = peerBlock(value);
-  return '<<<\n' + body + (body.endsWith('\n') ? '' : '\n') + '>>>';
-}
-
-/** A number from a peer, as plain digits; anything else shows as `?`. */
-function plainNumber(value: unknown): string {
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(n) ? String(n) : '?';
-}
-
-/** Answers that carry marked peer text start with the untrusted-data header. */
-function withPeerHeader(text: string): string {
-  return text.includes('<<<') ? PEER_HEADER + '\n' + text : text;
-}
+// the marking functions in `../peerText.js` before it reaches the output. Marking
+// lowers the risk of prompt injection; it does not prevent it.
 
 function refused(action: 'push' | 'pull', requested: string, reason: string): string {
   return `❌ Refused: cannot ${action} ${requested}: ${reason}.`;

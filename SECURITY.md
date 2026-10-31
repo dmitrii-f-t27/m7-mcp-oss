@@ -41,7 +41,12 @@ makes these requests. They use your keys and carry no task text.
 ### Other destinations you control
 
 - **Hive** (`mcp_m7_hive_coordinator`) calls OpenAI and Anthropic with the task
-  you give it. The switch above does not cover Hive.
+  you give it. It also sends more than the task: up to three chunks of your
+  project memory that match the task (300 characters each), and, when the mesh
+  is active, the context of the other M7 instances (role, project path, the
+  first 12 characters of the instance id, the process id and up to three
+  published context texts of 150 characters each). The text from other
+  instances is marked as untrusted data. The switch above does not cover Hive.
 - **Telemetry** is sent only if you set `M7_TELEMETRY_ENDPOINT`.
 - **Mesh relay** traffic goes only to the host in `M7_MESH_RELAY`.
 - **ChromaDB** is read at `CHROMA_URL` (default `http://localhost:8000`).
@@ -332,7 +337,9 @@ secret exists.
   prevented (SEC-7).
 - The visualizer and the relay have no per-user identity (SEC-6, SEC-12).
 - Remote classification, when switched on, sends the task text to OpenAI. Hive
-  always sends the task text to OpenAI and Anthropic when you use it.
+  always sends the task text to OpenAI and Anthropic when you use it, together
+  with up to three project memory chunks and, when the mesh is active, the
+  context of the other M7 instances (see "Other destinations you control").
 - `.env` in the install directory, the process environment and the MCP client
   config are trusted input (SEC-8).
 - An explicit `project_path` is followed if the directory exists (SEC-16).

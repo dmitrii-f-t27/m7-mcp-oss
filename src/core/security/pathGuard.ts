@@ -11,8 +11,10 @@ import * as nodePath from 'path';
  *   (`pushRefusal`, `pullRefusal`).
  *
  * The decision rules are pure: no I/O, no regular expressions, only byte-level
- * comparisons, so they can move to a t27 spec unchanged. The I/O functions at the
- * end resolve symlinks and call the rules.
+ * comparisons, so they can move to a t27 spec unchanged. The one exception is
+ * `foldUnicode`, marked NATIVE FACADE below: Unicode tables belong to the platform,
+ * so it stays native and hands plain folded text to the rules. The I/O functions at
+ * the end resolve symlinks and call the rules.
  *
  * Limit: a path is checked, then used. A symlink swapped between the check and the
  * write is not caught.
@@ -35,11 +37,15 @@ export const REFUSE_CONTROL = 'a git, editor or M7 control path is never written
 export const REFUSE_OUTSIDE = 'the path is outside the project, or leaves it through a symlink';
 export const REFUSE_ROOT = 'the project root cannot be resolved';
 
-/** Names (whole path segment, ASCII case-insensitive) that hold secrets. */
+// The name lists below hold folded text (see `foldName`): lower case, no look-alike
+// letters, no ignorable marks, no trailing dots or spaces. A segment is folded before
+// it is compared, so `.ENV`, `.cur` + long s + `orrules` and `.env ` all match.
+
+/** Names (whole path segment, folded) that hold secrets. */
 const SECRET_NAMES = [
-  '.env', '.npmrc', '.netrc', '.pypirc',
+  '.env', '.envrc', '.npmrc', '.netrc', '.pypirc', '.pgpass', '.git-credentials',
   'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519',
-  'credentials', '.aws', '.ssh',
+  'credentials', '.aws', '.ssh', '.docker', '.kube', '.gnupg',
 ];
 /** A segment that starts with one of these holds secrets (`.env.local`). */
 const SECRET_PREFIXES = ['.env.'];
@@ -48,8 +54,8 @@ const SECRET_PREFIXES = ['.env.'];
  * old push filter blocked `*.env`; it is kept so no protection is lost.
  */
 const SECRET_SUFFIXES = ['.key', '.pem', '.p12', '.pfx', '.jks', '.keystore', '.env'];
-/** Names (whole path segment, ASCII case-insensitive) that steer git, editors, agents or M7. */
-const CONTROL_NAMES = ['.git', '.cursor', '.cursorrules', '.vscode', '.claude', '.m7', '.husky', '.github'];
+/** Names (whole path segment, folded) that steer git, editors, agents or M7. */
+const CONTROL_NAMES = ['.git', '.cursor', '.cursorrules', '.vscode', '.claude', '.m7', '.husky', '.github', '.mcp.json'];
 
 function isSeparator(code: number, win: boolean): boolean {
   return code === SLASH || (win && code === BACKSLASH);
@@ -59,14 +65,47 @@ function foldAscii(code: number): number {
   return code >= UPPER_A && code <= UPPER_Z ? code + CASE_GAP : code;
 }
 
-/** ASCII upper case to lower case; every other code unit stays. */
-export function asciiLower(text: string): string {
-  let out = '';
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    out += code >= UPPER_A && code <= UPPER_Z ? String.fromCharCode(code + CASE_GAP) : text[i];
+// --- NATIVE FACADE: Unicode folding --------------------------------------------
+// Not ported to t27. Normalization, case tables and the Default_Ignorable_Code_Point
+// property come from the platform (ICU in Node). Everything after this function is
+// plain code-unit comparison.
+
+const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+
+/**
+ * NATIVE FACADE. Fold one path segment the way a case-insensitive file system
+ * compares names, so a look-alike spelling meets the same denylist entry:
+ * - ignorable code points are dropped (zero-width space, soft hyphen, word joiner,
+ *   byte order mark, variation selectors, tag characters);
+ * - NFKC turns compatibility forms into plain ones (long s -> s, full-width letters
+ *   and full stop, ligatures);
+ * - upper case, then lower case: the Kelvin sign becomes k, the sharp s becomes ss,
+ *   the dotless i becomes i.
+ * The result is for comparison only; it is never used as a path.
+ */
+export function foldUnicode(text: string): string {
+  return text.replace(IGNORABLE, '').normalize('NFKC').toUpperCase().toLowerCase().replace(IGNORABLE, '');
+}
+
+// --- Pure rules again -----------------------------------------------------------
+
+const DOT = 46; // '.'
+const SPACE = 32; // ' '
+
+/** Cut trailing dots and spaces. Windows and some network file systems ignore them in a name. */
+export function trimTrailingDotSpace(text: string): string {
+  let end = text.length;
+  while (end > 0) {
+    const code = text.charCodeAt(end - 1);
+    if (code !== DOT && code !== SPACE) break;
+    end--;
   }
-  return out;
+  return text.slice(0, end);
+}
+
+/** The comparison key of one path segment: folded, without trailing dots and spaces. */
+export function foldName(segment: string): string {
+  return trimTrailingDotSpace(foldUnicode(segment));
 }
 
 /** Path segments. Both `/` and `\` separate, whatever the platform: the stricter reading. */
@@ -82,18 +121,24 @@ export function pathSegments(rel: string): string[] {
   return segments;
 }
 
-function isSecretSegment(lower: string): boolean {
-  if (SECRET_NAMES.includes(lower)) return true;
-  for (const prefix of SECRET_PREFIXES) if (lower.startsWith(prefix)) return true;
-  for (const suffix of SECRET_SUFFIXES) if (lower.endsWith(suffix)) return true;
+/** `folded` is the output of `foldName`. */
+function isSecretSegment(folded: string): boolean {
+  if (SECRET_NAMES.includes(folded)) return true;
+  for (const prefix of SECRET_PREFIXES) if (folded.startsWith(prefix)) return true;
+  for (const suffix of SECRET_SUFFIXES) if (folded.endsWith(suffix)) return true;
   return false;
+}
+
+/** `folded` is the output of `foldName`. */
+function isControlSegment(folded: string): boolean {
+  return CONTROL_NAMES.includes(folded);
 }
 
 /** A reason when `rel` must not be pushed to a peer, otherwise null. */
 export function pushRefusal(rel: string): string | null {
   if (rel.indexOf('\0') !== -1) return REFUSE_NUL;
   for (const segment of pathSegments(rel)) {
-    if (isSecretSegment(asciiLower(segment))) return REFUSE_SECRET;
+    if (isSecretSegment(foldName(segment))) return REFUSE_SECRET;
   }
   return null;
 }
@@ -103,7 +148,7 @@ export function pullRefusal(rel: string): string | null {
   const secret = pushRefusal(rel);
   if (secret !== null) return secret;
   for (const segment of pathSegments(rel)) {
-    if (CONTROL_NAMES.includes(asciiLower(segment))) return REFUSE_CONTROL;
+    if (isControlSegment(foldName(segment))) return REFUSE_CONTROL;
   }
   return null;
 }

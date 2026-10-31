@@ -18,6 +18,8 @@ import { getMemoryCore, UnifiedMemoryCore } from '../../memory/auto/unified-memo
 import { quickParse } from '../utils/json/index.js';
 // v7.1: Project path for saving reports
 import { getProjectPath } from '../../core/utils/projectPath.js';
+// SEC-7: text from other M7 instances is marked as untrusted data
+import { PEER_HEADER, plainNumber, untrusted, untrustedId, untrustedOr } from '../../mesh/peerText.js';
 
 // ============================================================================
 // v7.1: Save Hive reports to docs/hive/ as .md files
@@ -154,15 +156,19 @@ Use mode="fixed" for legacy behavior with predefined agents.`,
         if (mesh.isActive()) {
           const peerContexts = mesh.getAllPeerContexts();
           if (peerContexts.length > 0) {
+            // SEC-7: every value below comes from another M7 instance. It is data, not
+            // instruction: each one is cleaned and put between <<< >>>, and the block
+            // starts with the untrusted-data header. Marking lowers the risk of prompt
+            // injection; it does not prevent it.
             const peerLines = peerContexts.map(p => {
-              const ctxSummary = p.contexts.slice(0, 3).map(c => 
-                `    [${c.context_type}] ${c.content.slice(0, 150)}`
+              const ctxSummary = p.contexts.slice(0, 3).map(c =>
+                `    [${untrusted(c.context_type)}] ${untrusted(c.content, 150)}`
               ).join('\n');
-              return `  - Instance ${p.instance_id.slice(0, 12)}... (PID ${p.pid})\n` +
-                `    Role: ${p.server_role || 'none'} | Project: ${p.project_root}\n` +
+              return `  - Instance ${untrustedId(p.instance_id)} (PID ${plainNumber(p.pid)})\n` +
+                `    Role: ${untrustedOr(p.server_role, 'none')} | Project: ${untrusted(p.project_root)}\n` +
                 (ctxSummary ? `${ctxSummary}` : '    (no context published)');
             }).join('\n');
-            meshContextBlock = `\n\n--- MESH CONTEXT: ${peerContexts.length} other M7 instance(s) active ---\n${peerLines}\n--- END MESH CONTEXT ---`;
+            meshContextBlock = `\n\n--- MESH CONTEXT: ${peerContexts.length} other M7 instance(s) active ---\n${PEER_HEADER}\n${peerLines}\n--- END MESH CONTEXT ---`;
             log.debug(`🔗 [MCP Hive] Injected mesh context from ${peerContexts.length} peer(s)`);
           }
         }
