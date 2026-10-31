@@ -82,6 +82,17 @@ For context, since harness-engineering frameworks became a popular topic in
 - Optional: ChromaDB at `CHROMA_URL` (default `http://localhost:8000`) for
   vector memory.
 
+Your task text stays on your machine by default. `mcp_m7_analyze_task`
+classifies the task locally and sends the text nowhere. To let OpenAI
+(`gpt-4o-mini`) classify it, set `M7_ALLOW_REMOTE_CLASSIFICATION=true`: the text
+is then sent once per `mcp_m7_analyze_task` call (more often only if the
+remote call fails and is retried). Separately, with both keys
+set, the server asks OpenAI and Anthropic for their model lists (no task text)
+at start and on the first `mcp_m7_analyze_task` call. The local
+classification picks no scan patterns, so the pattern scan of the project
+(which the remote classifier steers) does not run unless you opt in. See
+[SECURITY.md](SECURITY.md) for what leaves the machine.
+
 ## Install
 
 ```bash
@@ -138,6 +149,7 @@ in `src/core/config/featureFlags.ts`. Useful environment variables:
 |---|---|
 | `M7_PROJECT_PATH` | target project directory |
 | `M7_DEBUG=true` | verbose logs on stderr |
+| `M7_ALLOW_REMOTE_CLASSIFICATION=true` | send the task text to OpenAI (`gpt-4o-mini`) to classify it, once per `mcp_m7_analyze_task` call; unset or any other value means the task is classified locally and the text is not sent |
 | `M7_TELEMETRY_ENDPOINT` | enable telemetry upload to a collector you run; unset means nothing leaves the machine |
 | `M7_RULE_REINJECTION_THRESHOLD` | override how many `mcp_m7_cycle` calls in the same phase before rules are re-injected |
 | `CHROMA_URL` | ChromaDB base URL |

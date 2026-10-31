@@ -209,31 +209,104 @@ const SYSTEM_PROMPT = `Ты M7 Intent Classifier. Анализируй зада�
 → intent: EXPLAIN, route: light, allowCode: false, patternsToScan: [], fileExtensions: []`;
 
 // ============================================
+// REMOTE CLASSIFICATION SWITCH (SEC-3)
+// ============================================
+
+/**
+ * The task text leaves the machine only when the user sets
+ * M7_ALLOW_REMOTE_CLASSIFICATION=true. Any other value, or no value, keeps it local.
+ * Read on every call, so a change of the environment takes effect at once.
+ */
+export function isRemoteClassificationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.M7_ALLOW_REMOTE_CLASSIFICATION === 'true';
+}
+
+/**
+ * Intent used when remote classification is off (the default).
+ *
+ * Nothing was analysed, so it claims nothing: allowCode is true because no
+ * model decided that code is off limits, confidence 0.5 stays below the 0.7
+ * at which the router lets an intent override its own route, and there are no
+ * risks and no scan patterns. Not a failure: getDefaultIntent is for failures.
+ */
+export function getLocalIntent(): ClassifiedIntent {
+  return {
+    intent: 'EXPLAIN',
+    phase: 'DISCOVERY',
+    route: 'medium',
+    confidence: 0.5,
+    reasoning: 'Local default: remote classification is off (set M7_ALLOW_REMOTE_CLASSIFICATION=true to enable); the task text was not analysed.',
+    allowCode: true,
+    suggestedAgents: ['research'],
+    estimatedFiles: 1,
+    estimatedMinutes: 30,
+    risks: [],
+    requiresFullCycle: true,
+    patternsToScan: [],
+    fileExtensions: [],
+  };
+}
+
+/** Last successful remote classification, kept so one analyze_task sends its text once. */
+export interface ClassificationMemo {
+  text: string;
+  intent: ClassifiedIntent;
+}
+
+/** Pure: the remembered intent when `text` is exactly the remembered text, otherwise null. */
+export function memoLookup(memo: ClassificationMemo | null, text: string): ClassifiedIntent | null {
+  return memo !== null && memo.text === text ? memo.intent : null;
+}
+
+// ============================================
 // CLASSIFIER CLASS
 // ============================================
 
 export class IntentClassifier {
-  private openai: OpenAI;
+  private openai: OpenAI | null = null;
+  private readonly apiKey: string | undefined;
   private model: string = 'gpt-4o-mini';
+  private memo: ClassificationMemo | null = null;
 
   constructor(apiKey?: string) {
-    this.openai = new OpenAI({
-      apiKey: apiKey || process.env.OPENAI_API_KEY,
-      maxRetries: 2,
-      timeout: 30000, // 30 seconds
-    });
+    // The client is built on the first remote call, never while remote classification is off.
+    this.apiKey = apiKey;
+  }
+
+  private getClient(): OpenAI {
+    if (!this.openai) {
+      this.openai = new OpenAI({
+        apiKey: this.apiKey || process.env.OPENAI_API_KEY,
+        maxRetries: 2,
+        timeout: 30000, // 30 seconds
+      });
+    }
+    return this.openai;
   }
 
   /**
-   * Классифицировать задачу через LLM
+   * Классифицировать задачу.
+   * По умолчанию локально: текст задачи не покидает машину.
+   * Через LLM — только при M7_ALLOW_REMOTE_CLASSIFICATION=true.
    */
   async classify(taskDescription: string): Promise<ClassifiedIntent> {
+    if (!isRemoteClassificationEnabled()) {
+      log.debug('IntentClassifier] Remote classification is off, using local intent');
+      return getLocalIntent();
+    }
+
+    const remembered = memoLookup(this.memo, taskDescription);
+    if (remembered) {
+      log.debug('IntentClassifier] Same text as the last classification, reusing the result');
+      return structuredClone(remembered);
+    }
+
     const startTime = Date.now();
     
     try {
-      log.debug(`IntentClassifier] Classifying: "${taskDescription.slice(0, 50)}..."`);
+      log.debug(`IntentClassifier] Classifying remotely: ${taskDescription.length} characters`);
       
-      const completion = await this.openai.chat.completions.parse({
+      const completion = await this.getClient().chat.completions.parse({
         model: this.model,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -249,6 +322,8 @@ export class IntentClassifier {
       
       if (message?.parsed) {
         log.debug(`IntentClassifier] ✅ Classified in ${latency}ms: intent=${message.parsed.intent}, route=${message.parsed.route}, confidence=${(message.parsed.confidence * 100).toFixed(0)}%`);
+        // Only a successful answer is remembered: a failure is tried again on the next call.
+        this.memo = { text: taskDescription, intent: structuredClone(message.parsed) };
         return message.parsed;
       }
       
@@ -268,7 +343,7 @@ export class IntentClassifier {
   }
 
   /**
-   * Default intent для fallback
+   * Default intent для fallback (удалённая классификация включена, но не удалась)
    */
   private getDefaultIntent(reason: string): ClassifiedIntent {
     return {
