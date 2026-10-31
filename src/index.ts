@@ -145,6 +145,7 @@ import { extractZodSchema } from './core/utils/schemaConverter.js';
 import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved, isRootsResolutionComplete, needsProjectSwitch } from './core/utils/projectPath.js';
 import { registerShutdownContributor } from './core/shutdown/flushOnExit.js';
 import { PACKAGE_VERSION } from './core/utils/packageVersion.js';
+import { dataDirRefusal, M7_DATA_DIRS } from './core/security/pathGuard.js';
 class M7MCPServer {
   private server: McpServer;
   private memory: MemorySystem;
@@ -158,6 +159,8 @@ class M7MCPServer {
   private tsiSystem: Promise<TSISystem> | null = null;
   private projectPath: string;
   private registeredToolNames: string[] = [];
+  /** Project roots whose data folders passed the check once (SEC-26). */
+  private checkedDataRoots = new Set<string>();
 
   constructor() {
     this.server = new McpServer({
@@ -773,6 +776,18 @@ class M7MCPServer {
     log('✅ [M7] MCP Resources registered successfully! (4 resources available)');
   }
 
+  /**
+   * SEC-26: a refusal text when `.m7` or `m7-cycles` of `root` leads outside the project,
+   * otherwise null. A root that passed is not walked again; a refused root is checked on
+   * every call, so the refusal ends when the link is removed.
+   */
+  private dataDirRefusalOnce(root: string): string | null {
+    if (this.checkedDataRoots.has(root)) return null;
+    const refusal = dataDirRefusal(root, M7_DATA_DIRS);
+    if (refusal === null) this.checkedDataRoots.add(root);
+    return refusal;
+  }
+
   private registerTool(tool: any, handler: (request: any) => Promise<any>) {
     // Convert JSON Schema to Zod schema if needed
     const zodSchema = extractZodSchema(tool.inputSchema);
@@ -805,6 +820,11 @@ class M7MCPServer {
           // answered, and the systems are rebuilt when the workspace resolves. Once Roots are
           // resolved (or given up) this costs nothing.
           if (!isRootsResolutionComplete()) await ensureProjectPathResolved(this.server);
+          // SEC-26: no tool runs while a data folder of the project leads outside it.
+          const refusal = this.dataDirRefusalOnce(getProjectPath());
+          if (refusal !== null) {
+            return { content: [{ type: 'text', text: refusal }], isError: true };
+          }
           const result = await handler(args);
           
           // Handle both direct response and wrapped response formats

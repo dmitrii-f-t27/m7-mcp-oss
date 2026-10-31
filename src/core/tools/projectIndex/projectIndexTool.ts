@@ -18,7 +18,7 @@ import {
   DEFAULT_EXCLUDE_PATTERNS
 } from './types.js';
 import { getProjectPath } from '../../utils/projectPath.js';
-import { guardPath, pullRefusal } from '../../security/pathGuard.js';
+import { dataDirRefusal, guardPath, M7_DATA_DIRS, pullRefusal } from '../../security/pathGuard.js';
 import { createLogger } from '../../utils/logger.js';
 // v5.0: Use UnifiedMemoryCore instead of MemorySystem
 import { getMemoryCore, UnifiedMemoryCore } from '../../../memory/auto/unified-memory-core.js';
@@ -110,6 +110,12 @@ export const projectIndexTool = {
     try {
       const params = ProjectIndexRequestSchema.parse(request);
       const projectPath = params.project_path || getProjectPath();
+      // SEC-26: the hash cache goes to `.m7` of this project. The server checked the session's
+      // project already; a project_path names another one.
+      if (params.project_path) {
+        const dataRefusal = dataDirRefusal(projectPath, M7_DATA_DIRS);
+        if (dataRefusal !== null) throw new Error(dataRefusal);
+      }
       // The index is written inside the project only, and never to a secret or control path.
       const requestedOutput = params.output_path || 'PROJECT_INDEX.md';
       const outputGuard = await guardPath(projectPath, requestedOutput, pullRefusal);

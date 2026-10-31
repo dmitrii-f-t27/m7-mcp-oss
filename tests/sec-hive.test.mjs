@@ -20,6 +20,8 @@
  */
 
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -60,8 +62,8 @@ function installFakeFetch() {
  * text the fake provider received (system prompts and messages, one string each)
  * and the answer of the tool.
  */
-async function runHive(peerContexts, task) {
-  const dir = await makeProject('sec-hive-');
+async function runHive(peerContexts, task, { dir: givenDir } = {}) {
+  const dir = givenDir ?? await makeProject('sec-hive-');
   const restoreProject = await bindProject(dir);
   const fake = installFakeFetch();
   const { getMeshManager } = await import(distUrl('mesh/MeshManager.js'));
@@ -94,7 +96,7 @@ async function runHive(peerContexts, task) {
     }
     fake.restore();
     restoreProject();
-    await removeProject(dir);
+    if (!givenDir) await removeProject(dir);
   }
 }
 
@@ -207,4 +209,65 @@ describe('Hive marks the text of other M7 instances as untrusted', () => {
     assert.ok(run.texts.some(t => t.includes('PWN-TASK-CANARY')), 'the task text must reach the model');
     assert.ok(!run.texts.some(t => t.includes(START) || t.includes(END)), 'no mesh block without peers');
   });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-26: the Hive report stays inside the project
+// ---------------------------------------------------------------------------
+
+// `docs` is a folder users often link on purpose, so the Hive report is not a data folder
+// the server checks before every tool. The report is written only when its folder, with
+// links resolved, lies inside the project; otherwise the report is skipped and the tool
+// still answers.
+
+/** `<outer>/proj` (a project) and `<outer>/outside` (empty, next to it). */
+async function withNestedProject(fn) {
+  const outer = await mkdtemp(path.join(tmpdir(), 'sec-hive-nested-'));
+  const proj = path.join(outer, 'proj');
+  const outside = path.join(outer, 'outside');
+  await mkdir(proj);
+  await mkdir(outside);
+  await writeFile(path.join(proj, 'package.json'), JSON.stringify({ name: 'hive-fixture' }));
+  try {
+    return await fn({ outer, proj, outside });
+  } finally {
+    await rm(outer, { recursive: true, force: true });
+  }
+}
+
+const reportsIn = async dir => (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.md'));
+
+describe('SEC-26: the Hive report is written inside the project only', () => {
+  it('control: a plain project gets its report in docs/hive', T, async () => {
+    await withNestedProject(async ({ proj }) => {
+      const run = await runHive([], 'Plain report probe PWN-TASK-CANARY', { dir: proj });
+      assert.equal((await reportsIn(path.join(proj, 'docs', 'hive'))).length, 1, `no report in docs/hive:\n${run.answer.slice(0, 600)}`);
+    });
+  });
+
+  it('control: a docs folder that is a link to a folder inside the project still gets the report', T, async () => {
+    await withNestedProject(async ({ proj }) => {
+      await mkdir(path.join(proj, 'real-docs'));
+      await symlink(path.join(proj, 'real-docs'), path.join(proj, 'docs'));
+      const run = await runHive([], 'Inside link probe PWN-TASK-CANARY', { dir: proj });
+      assert.equal((await reportsIn(path.join(proj, 'real-docs', 'hive'))).length, 1, `no report in the linked folder:\n${run.answer.slice(0, 600)}`);
+    });
+  });
+
+  for (const layout of ['docs', 'docs/hive']) {
+    it(`a ${layout} link leading outside the project: the outside folder stays empty and the tool still answers`, T, async () => {
+      await withNestedProject(async ({ proj, outside }) => {
+        if (layout === 'docs') {
+          await symlink(outside, path.join(proj, 'docs'));
+        } else {
+          await mkdir(path.join(proj, 'docs'));
+          await symlink(outside, path.join(proj, 'docs', 'hive'));
+        }
+        const run = await runHive([], 'Outside link probe PWN-TASK-CANARY', { dir: proj });
+        assert.deepEqual(await readdir(outside), [], `[${layout} -> outside] Hive wrote its report into the folder outside the project`);
+        assert.ok(run.answer.length > 0, 'the tool must still answer when the report is skipped');
+        assert.ok(!/Report saved|Полный отчёт/.test(run.answer), 'the answer claims a report that was not saved');
+      });
+    });
+  }
 });

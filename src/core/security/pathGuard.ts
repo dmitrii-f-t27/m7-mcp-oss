@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs';
+import { promises as fs, lstatSync, readdirSync, realpathSync } from 'fs';
 import * as nodePath from 'path';
 
 /**
@@ -186,6 +186,14 @@ export function relativeWithin(root: string, target: string): string | null {
   return target.slice(i);
 }
 
+/**
+ * True when a symlink that resolves to `real` leaves `realRoot` (SEC-26). `real` is null
+ * when the link dangles, which counts as leaving: the target can be created later.
+ */
+export function linkLeavesRoot(realRoot: string, real: string | null): boolean {
+  return real === null || !isInside(realRoot, real);
+}
+
 // ---------------------------------------------------------------------------
 // I/O
 // ---------------------------------------------------------------------------
@@ -295,4 +303,85 @@ export async function guardPath(
   if (real !== null) return { ok: false, reason: real };
 
   return { ok: true, abs: parts.abs, relative };
+}
+
+// ---------------------------------------------------------------------------
+// M7 data folders (SEC-26)
+// ---------------------------------------------------------------------------
+
+/** The folders the server writes to under the project root without a path from the caller. */
+export const M7_DATA_DIRS: readonly string[] = ['.m7', 'm7-cycles'];
+
+/** A data folder tree with more entries than this is not walked: it is refused. */
+export const DATA_DIR_MAX_ENTRIES = 20000;
+
+function realpathOrNull(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function refuseDataDir(where: string, note = ''): string {
+  return `Refusing to write outside the project: ${where}${note}`;
+}
+
+/**
+ * A refusal text when one of the data folders `dirs` (names under `root`) leads outside
+ * the project, otherwise null. A cloned repo can ship `.m7` or `m7-cycles` as a symlink,
+ * and everything M7 writes there would land in the folder the link names.
+ *
+ * Each folder is walked without following links. The folder itself, or any link below it,
+ * that resolves outside `realpath(root)` or dangles is refused. A link that stays inside
+ * the project is fine; it is not followed, so a link behind it is not looked at. More than
+ * DATA_DIR_MAX_ENTRIES entries in all are refused, and so are a folder that cannot be read
+ * and a root that cannot be resolved. A folder that is absent passes.
+ *
+ * Limit: the folders are checked, then used. A link planted after the check is not caught.
+ */
+export function dataDirRefusal(root: string, dirs: readonly string[]): string | null {
+  const realRoot = realpathOrNull(root);
+  if (realRoot === null) return refuseDataDir(root, ' (the project root cannot be resolved)');
+
+  let entries = 0;
+  for (const dir of dirs) {
+    const start = nodePath.join(realRoot, dir);
+    let top = start;
+    try {
+      if (lstatSync(start).isSymbolicLink()) {
+        const real = realpathOrNull(start);
+        if (real === null || linkLeavesRoot(realRoot, real)) return refuseDataDir(start);
+        top = real;
+      }
+      if (!lstatSync(top).isDirectory()) continue;
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') continue;
+      return refuseDataDir(start);
+    }
+
+    const pending = [top];
+    while (pending.length > 0) {
+      const current = pending.pop() as string;
+      let listing;
+      try {
+        listing = readdirSync(current, { withFileTypes: true });
+      } catch {
+        return refuseDataDir(current);
+      }
+      for (const entry of listing) {
+        entries++;
+        if (entries > DATA_DIR_MAX_ENTRIES) {
+          return refuseDataDir(start, ` (more than ${DATA_DIR_MAX_ENTRIES} entries, cannot be checked)`);
+        }
+        const full = nodePath.join(current, entry.name);
+        if (entry.isSymbolicLink()) {
+          if (linkLeavesRoot(realRoot, realpathOrNull(full))) return refuseDataDir(full);
+        } else if (entry.isDirectory()) {
+          pending.push(full);
+        }
+      }
+    }
+  }
+  return null;
 }

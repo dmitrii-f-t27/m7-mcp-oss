@@ -20,6 +20,8 @@ import { quickParse } from '../utils/json/index.js';
 import { getProjectPath } from '../../core/utils/projectPath.js';
 // SEC-7: text from other M7 instances is marked as untrusted data
 import { PEER_HEADER, plainNumber, untrusted, untrustedId, untrustedOr } from '../../mesh/peerText.js';
+// SEC-26: the report goes into the project only
+import { resolveContainedEntry } from '../../core/security/pathGuard.js';
 
 // ============================================================================
 // v7.1: Save Hive reports to docs/hive/ as .md files
@@ -28,12 +30,15 @@ import { PEER_HEADER, plainNumber, untrusted, untrustedId, untrustedOr } from '.
 /**
  * Save the full Hive report to a Markdown file.
  * File goes to docs/hive/ in the project root (via getProjectPath).
+ *
+ * SEC-26: `docs` is often a link on purpose, so it is not one of the data folders the
+ * server checks before every tool. The report is written only when its folder, with
+ * links resolved, lies inside the project. Otherwise the report is skipped (null) and the
+ * tool still answers.
  */
-function saveHiveReport(taskId: string, taskDescription: string, content: string): string | null {
+async function saveHiveReport(taskId: string, taskDescription: string, content: string): Promise<string | null> {
   try {
     const projectRoot = getProjectPath();
-    const hiveDir = path.join(projectRoot, 'docs', 'hive');
-    fs.mkdirSync(hiveDir, { recursive: true });
     
     // Generate filename: YYYY-MM-DD_slug.md
     const now = new Date();
@@ -50,9 +55,14 @@ function saveHiveReport(taskId: string, taskDescription: string, content: string
       .replace(/^-+|-+$/g, '');
     
     const filename = `${dateStr}_${timeStr}_${slug}.md`;
-    const filepath = path.join(hiveDir, filename);
+    const filepath = await resolveContainedEntry(projectRoot, path.join('docs', 'hive', filename));
+    if (filepath === null) {
+      log.debug('⚠️ [MCP Hive] Report skipped: docs/hive is not inside the project');
+      return null;
+    }
     
-    fs.writeFileSync(filepath, content, 'utf-8');
+    await fs.promises.mkdir(path.dirname(filepath), { recursive: true });
+    await fs.promises.writeFile(filepath, content, 'utf-8');
     
     log.debug(`📄 [MCP Hive] Report saved: ${filepath}`);
     return filepath;
@@ -242,7 +252,7 @@ ${enrichedContext.relevantChunks.slice(0, 3).map(chunk =>
         
         // v7.2: Save full report to file, return compact summary to chat
         const fullReport = formatDynamicHiveResponse(result) + debugInfo;
-        const savedPath = saveHiveReport(taskId, request.task, fullReport);
+        const savedPath = await saveHiveReport(taskId, request.task, fullReport);
         
         // Return compact summary (~3-5KB) so user can actually SEE it in Cursor chat
         const compactSummary = formatCompactSummary(result, savedPath);
@@ -304,7 +314,7 @@ ${enrichedContext.relevantChunks.slice(0, 3).map(chunk =>
         
         // v7.1: Save report to docs/hive/
         const plannedReport = formatPlannerResponse(result);
-        const plannedPath = saveHiveReport(taskId, request.task, plannedReport);
+        const plannedPath = await saveHiveReport(taskId, request.task, plannedReport);
         const plannedNote = plannedPath 
           ? `\n---\n📄 **Report saved**: \`${plannedPath}\`` 
           : '';
@@ -343,7 +353,7 @@ ${enrichedContext.relevantChunks.slice(0, 3).map(chunk =>
       
       // v7.1: Save report to docs/hive/
       const fixedReport = formatHiveResponse(result);
-      const fixedPath = saveHiveReport(taskId, request.task, fixedReport);
+      const fixedPath = await saveHiveReport(taskId, request.task, fixedReport);
       const fixedNote = fixedPath 
         ? `\n---\n📄 **Report saved**: \`${fixedPath}\`` 
         : '';

@@ -8,7 +8,8 @@ const log = createLogger('[knowledgeHubTool]');
 
 import { KnowledgeHub } from './core/KnowledgeHub.js';
 import { JournalSystem } from '../../../journal/journalSystem.js';
-import { KnowledgeHubRequestSchema } from './types.js';
+import { DEFAULT_HUB_PATH, KnowledgeHubError, KnowledgeHubRequestSchema } from './types.js';
+import { dataDirRefusal } from '../../security/pathGuard.js';
 import { generateDiff, formatDiff } from './utils/diffUtils.js';
 import { getProjectPath } from '../../utils/projectPath.js';
 
@@ -76,6 +77,10 @@ export const knowledgeHubTool = {
       const params = KnowledgeHubRequestSchema.parse(request);
       const projectPath = getProjectPath();
       log.error(`📁 [knowledgeHub] Using project path: ${projectPath}`);
+
+      // SEC-26: no action runs while the hub folder, or a link inside it, leads outside the project.
+      const hubRefusal = dataDirRefusal(projectPath, [DEFAULT_HUB_PATH]);
+      if (hubRefusal !== null) throw new KnowledgeHubError(hubRefusal, 'INVALID_PATH', { projectPath });
       
       const hub = new KnowledgeHub(
         projectPath,

@@ -30,6 +30,7 @@ import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { silentLogger as logger } from './logger.js';
+import { dataDirRefusal, M7_DATA_DIRS } from '../security/pathGuard.js';
 
 let cachedProjectPath: string | null = null;
 let userExplicitProjectPath: string | null = null;
@@ -407,6 +408,10 @@ export function isRootsResolutionComplete(): boolean {
 
 export function applyProjectPath(path: string): string {
   const resolved = resolveExplicitProjectPath(path);
+  // SEC-26: refuse before any state changes, so a project whose data folder leads outside
+  // never becomes the session's project.
+  const refusal = dataDirRefusal(resolved, M7_DATA_DIRS);
+  if (refusal !== null) throw new Error(refusal);
   const oldPath = cachedProjectPath;
 
   userExplicitProjectPath = resolved;
