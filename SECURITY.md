@@ -433,7 +433,7 @@ line is off.
   transfer and the recon spawner pass `docs/debug/...` and `m7-cycles/...` folders
   (`src/core/task-transfer/transferManager.ts:209`,
   `src/core/orchestrator/frontierReconSpawner.ts:59`). The test plants the folder
-  to reach the write; whether the missing prefix is a defect was not decided here.
+  to reach the write. The missing prefix is a known functional defect, not a security issue: `analyze_task` normally writes no `TASK_META.json`. Nothing in `src` reads the file.
 - **SEC-19 remainder (traced).** `style_guardian` `analyze` takes `path`, walks it
   and reads every `.ts`, `.tsx`, `.js` and `.jsx` file (`src/style-guardian/style-analyzer.ts:562`,
   `:517`). It reads a file symlink, and it does not follow a directory symlink.
