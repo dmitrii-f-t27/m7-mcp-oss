@@ -116,6 +116,16 @@ explicitly avoids surprises when several workspaces are open.
 
 Run `mcp_m7_init_project` once inside a project. It creates the memory bank,
 project knowledge files and a `.cursorrules` with the methodology summary.
+It never overwrites a file that already exists, also with `force`: existing
+files are skipped and listed in the answer. `mcp_m7_analyze_task` sets a project
+up on its own only in an empty directory; in a directory that has files it
+creates none of these files and points to `mcp_m7_init_project`.
+
+With the default `create_session: true`, `mcp_m7_analyze_task` also creates a
+task folder of templates under `docs/debug/<folder>/` or `docs/features/<folder>/`
+(the seven M7 phase files). It never replaces a file there: a file that already
+exists is kept and reported as kept. Pass `create_session: false` to turn this
+off.
 From then on, start tasks with
 `mcp_m7_analyze_task` and follow the instructions the server returns.
 

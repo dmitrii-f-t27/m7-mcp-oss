@@ -8,6 +8,7 @@ import * as path from 'path';
 import { existsSync } from 'fs';
 import { getProjectPath, applyProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { createM7StructureInternal } from './createStructure.js';
+import { M7_MANAGED_MARKER, pathExistsNoFollow, writeIfAbsent } from '../utils/safeWrite.js';
 // v5.0: Use UnifiedMemoryCore instead of MemorySystem
 import { getMemoryCore, UnifiedMemoryCore } from '../../memory/auto/unified-memory-core.js';
 
@@ -19,12 +20,33 @@ export interface ColdStartResult {
   projectPath: string;
   projectName: string;
   filesCreated: string[];
+  /** Files that already existed and were left unchanged. */
+  filesSkipped: string[];
   firstTask?: {
     folder: string;
     files: string[];
   };
   memoryInitialized?: boolean;
   error?: string;
+}
+
+/** One project file M7 wrote or left alone, with a short description for the answer. */
+type FileEntry = { path: string; description: string };
+
+/**
+ * Write one project file only when it is absent.
+ * A file that already exists is never touched; it goes to `skippedFiles`.
+ */
+async function createFile(
+  currentDir: string,
+  relPath: string,
+  content: string,
+  description: string,
+  createdFiles: FileEntry[],
+  skippedFiles: FileEntry[]
+): Promise<void> {
+  const outcome = await writeIfAbsent(path.join(currentDir, relPath), content);
+  (outcome === 'created' ? createdFiles : skippedFiles).push({ path: relPath, description });
 }
 
 const InitProjectRequestSchema = z.object({
@@ -65,7 +87,7 @@ export const initProjectTool = {
       },
       force: {
         type: 'boolean',
-        description: 'Force initialization even if directory is not empty',
+        description: 'Initialize even if the directory is not empty. Existing files are never overwritten; they are skipped and listed in the answer.',
         default: false
       }
     }
@@ -82,6 +104,12 @@ export const initProjectTool = {
         currentDir = await ensureProjectPathResolved(server);
       }
       log.error(`📁 [initProject] Using project path: ${currentDir}`);
+
+      // The journal and schema the server passes in are bound to the root it had
+      // before this call; with an explicit project_path that root can be another
+      // project. Bind new ones to the resolved path and use only these.
+      const projectJournal = new JournalSystem(currentDir);
+      const projectSchema = schema ? new SchemaSystem(projectJournal, currentDir) : undefined;
       
       const isEmpty = await isDirectoryEmpty(currentDir);
       
@@ -112,13 +140,19 @@ Empty directory initialization ensures clean, intentional project setup.`
       const detectedName = project_name || path.basename(currentDir);
       
       // Initialize M7 ecosystem
-      const initResult = await initializeM7Ecosystem({
-        projectName: detectedName,
-        description: description || `${detectedName} - M7 Methodology Project`,
-        technologies: technologies || ['To be determined'],
-        domain: domain || 'General',
-        currentDir
-      }, journal, schema);
+      let initResult: Awaited<ReturnType<typeof initializeM7Ecosystem>>;
+      try {
+        initResult = await initializeM7Ecosystem({
+          projectName: detectedName,
+          description: description || `${detectedName} - M7 Methodology Project`,
+          technologies: technologies || ['To be determined'],
+          domain: domain || 'General',
+          currentDir
+        }, projectJournal, projectSchema);
+      } finally {
+        // This journal is not registered for shutdown: write its entries now.
+        await projectJournal.shutdown();
+      }
 
       return {
         content: [{
@@ -132,6 +166,7 @@ Empty directory initialization ensures clean, intentional project setup.`
 
 ## 🏗️ Created Structure:
 ${initResult.createdFiles.map(f => `- ✅ **${f.path}** - ${f.description}`).join('\n')}
+${formatSkippedSection(initResult.skippedFiles)}
 
 ## 🧠 Memory Systems:
 - ✅ **Project Memory** (Level 5) - High-level project context
@@ -171,42 +206,71 @@ Please check permissions and try again.`
 };
 
 /**
+ * Pure: is a directory with these entry names empty for M7?
+ * Hidden names (.git, .gitignore, .DS_Store, ...) do not make a project real.
+ */
+export function isEmptyListing(names: string[]): boolean {
+  const relevant = names.filter(name =>
+    !name.startsWith('.') ||
+    ['package.json', 'README.md', 'tsconfig.json'].includes(name)
+  );
+  return relevant.length === 0;
+}
+
+/**
  * Check if directory is empty or contains only hidden files
  * Exported for use in analyzeTask cold start detection
+ * A directory that cannot be read is NOT empty: M7 writes nothing into it.
  */
 export async function isDirectoryEmpty(dirPath: string): Promise<boolean> {
   try {
-    const files = await fs.readdir(dirPath);
-    // Ignore common hidden files that don't indicate a "real" project
-    const relevantFiles = files.filter(file => 
-      !file.startsWith('.') || 
-      ['package.json', 'README.md', 'tsconfig.json'].includes(file)
-    );
-    return relevantFiles.length === 0;
-  } catch (error) {
-    return true; // If can't read, assume empty
+    return isEmptyListing(await fs.readdir(dirPath));
+  } catch {
+    return false;
   }
 }
 
 /**
  * Check if directory needs M7 initialization
- * Returns true if directory is empty or lacks M7 structure
+ * Returns true only for an empty directory. Any other directory is the
+ * user's project; M7 sets it up only when asked (mcp_m7_init_project).
  */
 export async function needsM7Init(dirPath: string): Promise<boolean> {
   try {
-    // Check if directory is empty
-    const isEmpty = await isDirectoryEmpty(dirPath);
-    if (isEmpty) return true;
-    
-    // Check if M7 structure exists
-    const hasMemoryBank = existsSync(path.join(dirPath, 'memory-bank'));
-    const hasCursorRules = existsSync(path.join(dirPath, '.cursorrules'));
-    
-    // If no M7 structure, needs init
-    return !hasMemoryBank && !hasCursorRules;
+    return await isDirectoryEmpty(dirPath);
   } catch {
-    return true;
+    return false;
   }
+}
+
+/**
+ * Pure: should analyze_task tell the user that M7 is not set up here?
+ * True for a directory with files and with neither a memory-bank nor a .cursorrules.
+ */
+export function needsInitNoteFor(state: { isEmpty: boolean; hasMemoryBank: boolean; hasCursorRules: boolean }): boolean {
+  return !state.isEmpty && !state.hasMemoryBank && !state.hasCursorRules;
+}
+
+/** True when analyze_task should show the "M7 is not set up here" note. Writes nothing. */
+export async function needsM7InitNote(dirPath: string): Promise<boolean> {
+  try {
+    return needsInitNoteFor({
+      isEmpty: await isDirectoryEmpty(dirPath),
+      hasMemoryBank: existsSync(path.join(dirPath, 'memory-bank')),
+      hasCursorRules: existsSync(path.join(dirPath, '.cursorrules')),
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** The answer section for files that already existed. Empty text when there are none. */
+export function formatSkippedSection(skippedFiles: FileEntry[]): string {
+  if (skippedFiles.length === 0) return '';
+  return `
+## ⏭️ Skipped (already exist, left unchanged):
+${skippedFiles.map(f => `- ⏭️ **${f.path}** - ${f.description}`).join('\n')}
+`;
 }
 
 async function initializeM7Ecosystem(
@@ -221,28 +285,34 @@ async function initializeM7Ecosystem(
   schema?: SchemaSystem
 ) {
   const { projectName, description, technologies, domain, currentDir } = config;
-  const createdFiles: Array<{path: string, description: string}> = [];
+  const createdFiles: FileEntry[] = [];
+  const skippedFiles: FileEntry[] = [];
 
-  // 1. Create PROJECT_SCHEMA.yaml using SchemaSystem
+  // 1. Create PROJECT_SCHEMA.yaml using SchemaSystem (never replace an existing one)
   if (schema) {
-    await schema.initializeSchema(projectName, description);
-    createdFiles.push({
+    const schemaEntry = {
       path: 'PROJECT_SCHEMA.yaml',
       description: 'Central project configuration and structure'
-    });
+    };
+    if (await pathExistsNoFollow(path.join(currentDir, 'PROJECT_SCHEMA.yaml'))) {
+      skippedFiles.push(schemaEntry);
+    } else {
+      await schema.initializeSchema(projectName, description);
+      createdFiles.push(schemaEntry);
+    }
   }
 
   // 2. Create Memory Bank structure
-  await createMemoryBank(currentDir, projectName, description, technologies, domain, createdFiles);
+  await createMemoryBank(currentDir, projectName, description, technologies, domain, createdFiles, skippedFiles);
 
   // 3. Initialize .cursorrules
-  await createCursorRules(currentDir, projectName, createdFiles);
+  await createCursorRules(currentDir, projectName, createdFiles, skippedFiles);
 
   // 4. Create basic project structure
-  await createProjectStructure(currentDir, createdFiles);
+  await createProjectStructure(currentDir, createdFiles, skippedFiles);
 
   // 4.5. Create M7 Knowledge System (reference files + cursor rule)
-  await createKnowledgeSystem(currentDir, projectName, description, technologies, domain, createdFiles);
+  await createKnowledgeSystem(currentDir, projectName, description, technologies, domain, createdFiles, skippedFiles);
 
   // 5. Initialize M7 Unified Memory System
   try {
@@ -295,7 +365,7 @@ async function initializeM7Ecosystem(
     complexity: 'light'
   });
 
-  return { createdFiles };
+  return { createdFiles, skippedFiles };
 }
 
 async function createMemoryBank(
@@ -304,7 +374,8 @@ async function createMemoryBank(
   description: string,
   technologies: string[],
   domain: string,
-  createdFiles: Array<{path: string, description: string}>
+  createdFiles: FileEntry[],
+  skippedFiles: FileEntry[]
 ) {
   const memoryBankDir = path.join(currentDir, 'memory-bank');
   await fs.mkdir(memoryBankDir, { recursive: true });
@@ -341,8 +412,7 @@ ${technologies.map(tech => `- ${tech}`).join('\n')}
 *Created: ${new Date().toISOString()}*
 *Methodology: M7 IDEAL*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'projectbrief.md'), projectBrief);
-  createdFiles.push({path: 'memory-bank/projectbrief.md', description: 'Foundation document'});
+  await createFile(currentDir, 'memory-bank/projectbrief.md', projectBrief, 'Foundation document', createdFiles, skippedFiles);
 
   // Product Context
   const productContext = `# Product Context: ${projectName}
@@ -376,11 +446,11 @@ This project was initialized with M7 methodology to ensure:
 
 *Updated: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'productContext.md'), productContext);
-  createdFiles.push({path: 'memory-bank/productContext.md', description: 'Product vision and goals'});
+  await createFile(currentDir, 'memory-bank/productContext.md', productContext, 'Product vision and goals', createdFiles, skippedFiles);
 
   // Active Context
-  const activeContext = `# Active Context: ${projectName}
+  const activeContext = `${M7_MANAGED_MARKER}
+# Active Context: ${projectName}
 
 ## 🎯 Current Focus
 **Phase:** Project Initialization ✅
@@ -408,8 +478,7 @@ This project was initialized with M7 methodology to ensure:
 
 *Updated: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'activeContext.md'), activeContext);
-  createdFiles.push({path: 'memory-bank/activeContext.md', description: 'Current work focus'});
+  await createFile(currentDir, 'memory-bank/activeContext.md', activeContext, 'Current work focus', createdFiles, skippedFiles);
 
   // System Patterns
   const systemPatterns = `# System Patterns: ${projectName}
@@ -441,8 +510,7 @@ This project was initialized with M7 methodology to ensure:
 
 *Updated: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'systemPatterns.md'), systemPatterns);
-  createdFiles.push({path: 'memory-bank/systemPatterns.md', description: 'Architecture and patterns'});
+  await createFile(currentDir, 'memory-bank/systemPatterns.md', systemPatterns, 'Architecture and patterns', createdFiles, skippedFiles);
 
   // Tech Context
   const techContext = `# Technical Context: ${projectName}
@@ -476,8 +544,7 @@ ${technologies.map(tech => `- **${tech}**: Version and configuration TBD`).join(
 
 *Updated: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'techContext.md'), techContext);
-  createdFiles.push({path: 'memory-bank/techContext.md', description: 'Technical environment'});
+  await createFile(currentDir, 'memory-bank/techContext.md', techContext, 'Technical environment', createdFiles, skippedFiles);
 
   // Progress
   const progress = `# Progress: ${projectName}
@@ -519,14 +586,14 @@ ${technologies.map(tech => `- **${tech}**: Version and configuration TBD`).join(
 
 *Updated: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(memoryBankDir, 'progress.md'), progress);
-  createdFiles.push({path: 'memory-bank/progress.md', description: 'Project progress tracking'});
+  await createFile(currentDir, 'memory-bank/progress.md', progress, 'Project progress tracking', createdFiles, skippedFiles);
 }
 
 async function createCursorRules(
   currentDir: string,
   projectName: string,
-  createdFiles: Array<{path: string, description: string}>
+  createdFiles: FileEntry[],
+  skippedFiles: FileEntry[]
 ) {
   const cursorRules = `# 📚 ${projectName} - M7 Methodology Rules
 
@@ -602,8 +669,7 @@ Each phase produces an artifact that serves as a memory bank for future tasks:
 *Project: ${projectName}*
 *Created: ${new Date().toISOString()}*`;
 
-  await fs.writeFile(path.join(currentDir, '.cursorrules'), cursorRules);
-  createdFiles.push({path: '.cursorrules', description: 'Project-specific M7 methodology rules'});
+  await createFile(currentDir, '.cursorrules', cursorRules, 'Project-specific M7 methodology rules', createdFiles, skippedFiles);
 }
 
 async function createKnowledgeSystem(
@@ -612,7 +678,8 @@ async function createKnowledgeSystem(
   description: string,
   technologies: string[],
   domain: string,
-  createdFiles: Array<{path: string, description: string}>
+  createdFiles: FileEntry[],
+  skippedFiles: FileEntry[]
 ) {
   // 1. Create .cursor/rules/m7-memory.mdc
   const cursorRulesDir = path.join(currentDir, '.cursor', 'rules');
@@ -639,8 +706,7 @@ After completing a task, update the relevant file:
 - Established a new pattern or convention → append to CODING_STANDARDS.md
 `;
 
-  await fs.writeFile(path.join(cursorRulesDir, 'm7-memory.mdc'), mdcContent);
-  createdFiles.push({path: '.cursor/rules/m7-memory.mdc', description: 'M7 knowledge system — auto-loaded project memory'});
+  await createFile(currentDir, '.cursor/rules/m7-memory.mdc', mdcContent, 'M7 knowledge system — auto-loaded project memory', createdFiles, skippedFiles);
 
   // 2. Create INDEX.md
   const techList = technologies.length > 0 && technologies[0] !== 'To be determined'
@@ -682,11 +748,11 @@ ${projectName}/
 *Initialized: ${new Date().toISOString()}*
 `;
 
-  await fs.writeFile(path.join(currentDir, 'INDEX.md'), indexContent);
-  createdFiles.push({path: 'INDEX.md', description: 'Project navigation map'});
+  await createFile(currentDir, 'INDEX.md', indexContent, 'Project navigation map', createdFiles, skippedFiles);
 
   // 3. Create MASTER_REFERENCE.md
-  const masterRefContent = `# ${projectName} — Master Reference
+  const masterRefContent = `${M7_MANAGED_MARKER}
+# ${projectName} — Master Reference
 
 ## Identity
 - **Project**: ${projectName}
@@ -715,11 +781,11 @@ ${projectName}/
 *Initialized: ${new Date().toISOString()}*
 `;
 
-  await fs.writeFile(path.join(currentDir, 'MASTER_REFERENCE.md'), masterRefContent);
-  createdFiles.push({path: 'MASTER_REFERENCE.md', description: 'Full architecture reference'});
+  await createFile(currentDir, 'MASTER_REFERENCE.md', masterRefContent, 'Full architecture reference', createdFiles, skippedFiles);
 
   // 4. Create CODING_STANDARDS.md
-  const standardsContent = `# ${projectName} — Coding Standards
+  const standardsContent = `${M7_MANAGED_MARKER}
+# ${projectName} — Coding Standards
 
 > Project-specific conventions. Not generic best practices — rules for this project.
 
@@ -742,11 +808,11 @@ ${techList}
 *Initialized: ${new Date().toISOString()}*
 `;
 
-  await fs.writeFile(path.join(currentDir, 'CODING_STANDARDS.md'), standardsContent);
-  createdFiles.push({path: 'CODING_STANDARDS.md', description: 'Project coding conventions'});
+  await createFile(currentDir, 'CODING_STANDARDS.md', standardsContent, 'Project coding conventions', createdFiles, skippedFiles);
 
   // 5. Create CYCLE_REGISTRY.md
-  const registryContent = `# ${projectName} — Cycle Registry
+  const registryContent = `${M7_MANAGED_MARKER}
+# ${projectName} — Cycle Registry
 
 > Decision history: what was done, why, lessons learned. Updated after each task.
 
@@ -772,13 +838,13 @@ ${techList}
 *Initialized: ${new Date().toISOString()}*
 `;
 
-  await fs.writeFile(path.join(currentDir, 'CYCLE_REGISTRY.md'), registryContent);
-  createdFiles.push({path: 'CYCLE_REGISTRY.md', description: 'Decision and cycle history'});
+  await createFile(currentDir, 'CYCLE_REGISTRY.md', registryContent, 'Decision and cycle history', createdFiles, skippedFiles);
 }
 
 async function createProjectStructure(
   currentDir: string,
-  createdFiles: Array<{path: string, description: string}>
+  createdFiles: FileEntry[],
+  skippedFiles: FileEntry[]
 ) {
   // Create docs structure
   const docsDir = path.join(currentDir, 'docs');
@@ -827,8 +893,7 @@ Follow the **Discovery → Architecture → Planning → Implementation** cycle 
 ---
 *Initialized with M7 MCP v3.4*`;
 
-  await fs.writeFile(path.join(currentDir, 'README.md'), readme);
-  createdFiles.push({path: 'README.md', description: 'Project documentation (for humans)'});
+  await createFile(currentDir, 'README.md', readme, 'Project documentation (for humans)', createdFiles, skippedFiles);
 
   // Create or update .gitignore to exclude .m7/ directory
   const gitignorePath = path.join(currentDir, '.gitignore');
@@ -851,155 +916,6 @@ Follow the **Discovery → Architecture → Planning → Implementation** cycle 
   createdFiles.push({path: 'docs/features/', description: 'Feature development documentation'});
   createdFiles.push({path: 'docs/debug/', description: 'Bug analysis and resolution'});
   createdFiles.push({path: '.m7/', description: 'M7 system data (project-specific, git-ignored)'});
-}
-
-/**
- * Create INDEX.md for AI assistants
- * Contains structured information for AI navigation
- */
-async function createAIIndex(
-  currentDir: string,
-  projectName: string,
-  description: string,
-  technologies: string[],
-  domain: string,
-  createdFiles: Array<{path: string, description: string}>
-): Promise<void> {
-  const indexContent = `# 📋 ${projectName} - AI Project Index
-
-> **🤖 This file is for AI assistants.** For human documentation, see [README.md](./README.md)
-
----
-
-## 📅 Last Updated: ${new Date().toISOString()}
-## 🎯 Status: 🚧 Development
-
----
-
-## 🎯 PROJECT OVERVIEW
-
-**${projectName}** - ${description}
-
-**Domain:** ${domain}
-**Technologies:** ${technologies.join(', ')}
-
----
-
-## 📁 PROJECT STRUCTURE
-
-\`\`\`
-${projectName}/
-├── INDEX.md           ← AI navigation (you are here)
-├── README.md          ← Human documentation
-├── .cursorrules       ← M7 methodology rules
-├── .gitignore         ← Git ignore patterns
-├── .m7/               ← M7 system data (git-ignored)
-├── memory-bank/       ← Project context and knowledge
-│   ├── projectbrief.md
-│   ├── productContext.md
-│   ├── activeContext.md
-│   ├── systemPatterns.md
-│   ├── techContext.md
-│   └── progress.md
-└── docs/
-    ├── features/      ← Feature development (M7 7-file structure)
-    └── debug/         ← Bug analysis and resolution
-\`\`\`
-
----
-
-## 🔧 M7 WORKFLOW
-
-### Starting a Task
-\`\`\`
-м7: описание задачи
-\`\`\`
-or
-\`\`\`
-@m7 analyze task "описание задачи"
-\`\`\`
-
-### Memory Operations
-- **Search:** \`@m7 memory search query="topic"\`
-- **Store Pattern:** \`@m7 store pattern\`
-- **Update Project:** \`@m7 update project memory\`
-
-### Navigation
-- **Current Location:** \`@m7 navigate where_am_i\`
-- **Show Roadmap:** \`@m7 navigate show_roadmap\`
-
----
-
-## 📚 KEY FILES
-
-| File | Purpose | Importance |
-|------|---------|------------|
-| \`INDEX.md\` | AI navigation and context | 🔴 Critical |
-| \`README.md\` | Human documentation | 🟡 High |
-| \`.cursorrules\` | M7 methodology enforcement | 🔴 Critical |
-| \`memory-bank/activeContext.md\` | Current work focus | 🔴 Critical |
-| \`memory-bank/progress.md\` | Task progress tracking | 🟡 High |
-
----
-
-## ⚠️ IMPORTANT FOR AI
-
-### Before ANY Task:
-1. **Check this INDEX.md** for project structure
-2. **Read activeContext.md** for current focus
-3. **Use grep** before creating new functions
-4. **Verify libraries** with Context7
-
-### M7 7-File Methodology:
-Every feature/bug gets 7 files in \`docs/features/\` or \`docs/debug/\`:
-1. DISCOVERY_REPORT.md
-2. ARCHITECTURE_CONTEXT.md
-3. SOLUTION_PLAN.md
-4. IMPACT_ANALYSIS.md
-5. IMPLEMENTATION_SIMULATION.md
-6. RISK_MITIGATION.md
-7. IMPLEMENTATION_REPORT.md
-
-### Anti-Patterns to Avoid:
-- ❌ Creating duplicate functions without grep check
-- ❌ Skipping Discovery phase
-- ❌ Writing code before planning
-- ❌ Ignoring existing patterns in memory-bank/
-
----
-
-## 📊 PROJECT STATUS
-
-### Completed ✅
-- M7 ecosystem initialization
-
-### In Progress 🔄
-- Initial project setup
-
-### Planned 📋
-- First feature implementation
-
----
-
-## 🔄 UPDATING THIS INDEX
-
-This index should be updated when:
-- New major components are added
-- Project structure changes
-- Technologies are updated
-- Important patterns are discovered
-
-\`\`\`
-@m7 project index update
-\`\`\`
-
----
-
-*Generated by M7 MCP v3.4 - Cold Start System*
-`;
-
-  await fs.writeFile(path.join(currentDir, 'INDEX.md'), indexContent);
-  createdFiles.push({path: 'INDEX.md', description: 'AI navigation index (for AI assistants)'});
 }
 
 /**
@@ -1049,25 +965,23 @@ export async function initProjectInternal(params: {
   const technologies = params.technologies || ['To be determined'];
   const domain = params.domain || 'General';
   
-  const createdFiles: Array<{path: string, description: string}> = [];
+  const createdFiles: FileEntry[] = [];
+  const skippedFiles: FileEntry[] = [];
   
   try {
     log.error(`🚀 [Cold Start] Initializing M7 ecosystem in: ${currentDir}`);
     
     // 1. Create Memory Bank
-    await createMemoryBank(currentDir, projectName, description, technologies, domain, createdFiles);
+    await createMemoryBank(currentDir, projectName, description, technologies, domain, createdFiles, skippedFiles);
     
     // 2. Create .cursorrules
-    await createCursorRules(currentDir, projectName, createdFiles);
+    await createCursorRules(currentDir, projectName, createdFiles, skippedFiles);
     
     // 3. Create project structure (README.md, docs/, .m7/)
-    await createProjectStructure(currentDir, createdFiles);
+    await createProjectStructure(currentDir, createdFiles, skippedFiles);
     
-    // 4. Create INDEX.md for AI
-    await createAIIndex(currentDir, projectName, description, technologies, domain, createdFiles);
-
-    // 4.5. Create M7 Knowledge System (reference files + cursor rule)
-    await createKnowledgeSystem(currentDir, projectName, description, technologies, domain, createdFiles);
+    // 4. Create M7 Knowledge System (reference files + cursor rule)
+    await createKnowledgeSystem(currentDir, projectName, description, technologies, domain, createdFiles, skippedFiles);
     
     // 5. Initialize Unified Memory System
     try {
@@ -1123,6 +1037,7 @@ export async function initProjectInternal(params: {
       projectPath: currentDir,
       projectName,
       filesCreated: createdFiles.map(f => f.path),
+      filesSkipped: skippedFiles.map(f => f.path),
       firstTask: firstTask || undefined,
       memoryInitialized: true
     };
@@ -1133,6 +1048,7 @@ export async function initProjectInternal(params: {
       projectPath: currentDir,
       projectName,
       filesCreated: createdFiles.map(f => f.path),
+      filesSkipped: skippedFiles.map(f => f.path),
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }

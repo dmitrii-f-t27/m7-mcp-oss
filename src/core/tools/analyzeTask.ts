@@ -17,10 +17,10 @@ import { getContextProvider } from '../../context/index.js';
 import { getCrossSessionLearning } from '../../cross-session/index.js';
 import { createM7StructureInternal } from './createStructure.js';
 import { checkSystemHealth, formatHealthStatus } from '../health/index.js';
-import { needsM7Init, initProjectInternal, ColdStartResult } from './initProject.js';
+import { needsM7Init, needsM7InitNote, initProjectInternal, ColdStartResult } from './initProject.js';
+import { M7_MANAGED_MARKER, writeManagedFile } from '../utils/safeWrite.js';
 import { getProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { scanProjectScope, ScopeContext } from '../scope/index.js';
-import { promises as fs } from 'fs';
 import path from 'path';
 import { classifyIntent, ClassifiedIntent, ScanPatternId } from '../intelligence/intentClassifier.js';
 
@@ -255,11 +255,24 @@ export const analyzeTaskTool = {
       log.debug(`M7 v3.9] Cross-Session Learning skipped: ${e.message}`);
     }
 
-    // v3.4 Cold Start Detection - Auto-initialize empty projects
+    // v3.4 Cold Start Detection - Auto-initialize empty projects only.
+    // A directory that has files is the user's project: M7 writes nothing there
+    // and only points to mcp_m7_init_project.
     let coldStartResult: ColdStartResult | null = null;
+    let missingInitNote = '';
     try {
       const needsInit = await needsM7Init(projectPath);
       
+      if (!needsInit && await needsM7InitNote(projectPath)) {
+        missingInitNote = `
+## ℹ️ M7 is not set up in this project
+
+This directory has files and no M7 files, so M7 created nothing. To set it up on purpose, call \`mcp_m7_init_project\`. It never overwrites an existing file.
+
+---
+`;
+      }
+
       if (needsInit) {
         log.debug(`M7 v3.4] Cold Start detected: initializing ${projectPath}`);
         coldStartResult = await initProjectInternal({
@@ -510,7 +523,7 @@ Please verify all libraries before proceeding with task analysis.`
       }
 
       // v3.3: Auto-create M7 structure when new session is created
-      let structureResult: { folder: string; files: string[]; success: boolean; error?: string } | null = null;
+      let structureResult: { folder: string; files: string[]; skipped: string[]; success: boolean; error?: string } | null = null;
       if (session && sessionAction === 'created') {
         try {
           // Extract clean task ID from session ID (remove 'task_' prefix and timestamp suffix)
@@ -528,7 +541,8 @@ Please verify all libraries before proceeding with task analysis.`
             structureResult = {
               success: true,
               folder: result.folder,
-              files: result.files
+              files: result.files,
+              skipped: result.skipped ?? []
             };
             log.debug(`📁 [M7 v3.3] Auto-created structure: ${result.folder} (${result.files.length} files)`);
           } else {
@@ -631,7 +645,10 @@ ${analysis.scopeContext.recommendation.reasoning}
 ### 📁 Созданная структура:
 ${coldStartResult.filesCreated.slice(0, 10).map(f => `- ✅ ${f}`).join('\n')}
 ${coldStartResult.filesCreated.length > 10 ? `\n*...и ещё ${coldStartResult.filesCreated.length - 10} файлов*` : ''}
-
+${coldStartResult.filesSkipped.length > 0 ? `
+### ⏭️ Skipped (already exist, left unchanged):
+${coldStartResult.filesSkipped.map(f => `- ⏭️ ${f}`).join('\n')}
+` : ''}
 ${coldStartResult.memoryInitialized ? `### 🧠 M7 Unified Memory:
 - **Статус:** ✅ Инициализирована
 - **Уровни:** L0-L4 готовы
@@ -667,7 +684,7 @@ ${coldStartResult.firstTask ? `### 🎯 Первый таск создан:
           type: 'text',
           text: `# 🎯 M7 Task Analysis Complete
 ${healthStatus}
-${coldStartSection}${currentContextHeader}
+${coldStartSection}${missingInitNote}${currentContextHeader}
 ${intentHeader}
 ${interpretationSection ? `\n${interpretationSection}\n` : ''}${scopeAlertSection ? `\n${scopeAlertSection}\n` : ''}${scopeScannerSection}${architectureContextSection}${contextSection}${crossSessionContext}${schemaWarnings.length > 0 ? `## 📋 Project Schema Warnings\n${schemaWarnings.join('\n')}\n\n` : ''}${whyM7Matters}
 
@@ -705,9 +722,9 @@ ${sessionAction === 'reused' ? `
 ${structureResult?.success ? `
 ## 📁 M7 Structure Auto-Created
 **Folder:** ${structureResult.folder}
-**Files created:**
-${structureResult.files.slice(0, 7).map(f => '- ✅ ' + f).join('\n')}
-
+**Files:**
+${structureResult.files.map(f => structureResult.skipped.includes(f) ? `- ⏭️ ${f} (kept, already exists)` : `- ✅ ${f}`).join('\n')}
+${structureResult.skipped.length > 0 ? '\n*Existing files were kept. Nothing was overwritten.*\n' : ''}
 💡 **Start with:** DISCOVERY_REPORT.md
 ` : ''}
 
@@ -879,7 +896,8 @@ async function updateActiveContext(taskDescription: string, route: string, phase
     const activeContextPath = path.join(projectPath, 'memory-bank', 'activeContext.md');
     
     const timestamp = new Date().toISOString();
-    const content = `# Active Context
+    const content = `${M7_MANAGED_MARKER}
+# Active Context
 
 ## Current Focus
 **Task:** ${taskDescription.substring(0, 200)}
@@ -892,7 +910,11 @@ async function updateActiveContext(taskDescription: string, route: string, phase
 
 *Auto-updated by M7 analyzeTask*
 `;
-    await fs.writeFile(activeContextPath, content, 'utf-8');
+    // Create it when absent, replace it only when M7 wrote it (marker); a user's own file stays untouched.
+    const outcome = await writeManagedFile(activeContextPath, content);
+    if (outcome === 'skipped') {
+      log.debug('activeContext.md is not managed by M7; left unchanged');
+    }
   } catch (err) {
     log.debug('activeContext.md update failed (non-critical):', err);
   }

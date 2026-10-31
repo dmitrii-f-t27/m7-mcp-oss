@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { writeFile, mkdir } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { cwd } from 'process';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { createLogger } from '../utils/logger.js';
+import { writeIfAbsent } from '../utils/safeWrite.js';
 
 const logger = createLogger('createStructure');
 
@@ -72,8 +73,8 @@ export const createStructureTool = {
       
       const files = generateM7Files(task_id, route, semanticFolder);
       
-      // Actually create the files on disk
-      await createM7Files(files, projectRoot);
+      // Actually create the files on disk; a file that already exists is kept
+      const { skipped } = await createM7Files(files, projectRoot);
       
       return {
         content: [{
@@ -87,10 +88,14 @@ ${description ? `**Description:** ${description}` : ''}
 ${version ? `**Version:** ${version}` : ''}
 ${status ? `**Status:** ${status}` : ''}
 
-## Files Created:
-${files.map(f => `- ✅ **${f.path}** - ${f.description}`).join('\n')}
+## Files:
+${files.map(f => skipped.includes(f.path)
+  ? `- ⏭️ **${f.path}** - kept, already exists`
+  : `- ✅ **${f.path}** - ${f.description}`).join('\n')}
 
-💾 **Files physically created on disk!**
+${skipped.length > 0
+  ? `⏭️ **${skipped.length} existing file(s) kept. Nothing was overwritten.**`
+  : '💾 **Files physically created on disk!**'}
 
 ## Next Steps:
 1. Start with **DISCOVERY_REPORT.md** - research existing solutions and best practices
@@ -161,29 +166,44 @@ function generateSemanticFolderName(
   return parts.join('_');
 }
 
-// Function to actually create files on disk
-async function createM7Files(files: M7File[], projectRoot?: string): Promise<void> {
+// Function to actually create files on disk.
+// A file that already exists is never replaced: it may hold the user's edits.
+// Returns the project-relative paths created and the ones kept.
+async function createM7Files(
+  files: M7File[],
+  projectRoot?: string
+): Promise<{ created: string[]; skipped: string[] }> {
   const resolvedRoot = projectRoot || getProjectPath();
   logger.debug(`Using project path: ${resolvedRoot}`);
-  
+
+  const created: string[] = [];
+  const skipped: string[] = [];
+
   for (const file of files) {
     try {
       // Create absolute path from project root
       const absolutePath = join(resolvedRoot, file.path);
       const dirPath = dirname(absolutePath);
-      
+
       // Create directory recursively if it doesn't exist
       await mkdir(dirPath, { recursive: true });
-      
-      // Write file content
-      await writeFile(absolutePath, file.template, 'utf8');
-      
-      logger.info(`Created: ${absolutePath}`);
+
+      // Write file content only when the file is absent
+      const outcome = await writeIfAbsent(absolutePath, file.template);
+      if (outcome === 'created') {
+        created.push(file.path);
+        logger.info(`Created: ${absolutePath}`);
+      } else {
+        skipped.push(file.path);
+        logger.info(`Kept existing file: ${absolutePath}`);
+      }
     } catch (error) {
       logger.error(`Failed to create ${file.path}:`, error);
       throw error;
     }
   }
+
+  return { created, skipped };
 }
 
 function generateM7Files(taskId: string, route: string, folderName?: string) {
@@ -447,7 +467,10 @@ Mental readiness:
 export interface CreateStructureResult {
   success: boolean;
   folder?: string;
+  /** Every path of the task folder, created or kept. */
   files?: string[];
+  /** The paths in `files` that already existed and were left unchanged. */
+  skipped?: string[];
   error?: string;
 }
 
@@ -471,13 +494,14 @@ export async function createM7StructureInternal(
     // Generate M7 files
     const files = generateM7Files(taskId, route, semanticFolder);
     
-    // Create files on disk
-    await createM7Files(files, projectRoot);
+    // Create files on disk (existing files are kept)
+    const { skipped } = await createM7Files(files, projectRoot);
     
     return {
       success: true,
       folder: semanticFolder,
-      files: files.map(f => f.path)
+      files: files.map(f => f.path),
+      skipped
     };
   } catch (error) {
     return {

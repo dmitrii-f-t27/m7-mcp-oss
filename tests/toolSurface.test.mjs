@@ -49,6 +49,14 @@ const ALLOWED = [
     value: { taskSupport: 'forbidden' },
     why: '@modelcontextprotocol/sdk 1.32 adds execution.taskSupport "forbidden" to every registered tool',
   },
+  {
+    // SEC-2: `force` no longer overwrites anything. Text only, same type and default.
+    tool: 'mcp_m7_init_project',
+    path: 'inputSchema.properties.force.description',
+    kind: 'changed',
+    value: 'Initialize even if the directory is not empty. Existing files are never overwritten; they are skipped and listed in the answer.',
+    why: 'SEC-2: init_project with force keeps existing files; the description says so',
+  },
 ];
 
 const FORBIDDEN_CLASSES = new Set(['removed-property', 'type-change', 'enum-removal', 'new-required']);

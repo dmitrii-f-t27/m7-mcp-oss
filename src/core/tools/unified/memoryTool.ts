@@ -17,7 +17,7 @@ import {
 import { buildConsolidationInstruction } from '../../../memory/promotionConsolidation.js';
 import { formatZodError } from '../../utils/errorFormatter.js';
 import { getProjectPath } from '../../utils/projectPath.js';
-import { promises as fs } from 'fs';
+import { appendIfManaged, updateIfManaged } from '../../utils/safeWrite.js';
 import path from 'path';
 import { createLogger } from '../../utils/logger.js';
 
@@ -301,6 +301,22 @@ function routeToReferenceFile(
   return { file: 'CYCLE_REGISTRY.md', title: contextKeys[0] || 'Knowledge entry' };
 }
 
+const METADATA_HEADING = '## Project Metadata (auto-synced)';
+
+/**
+ * Pure: put `section` (which starts with the metadata heading) into `existing`.
+ * An existing metadata section is replaced up to the next "## " heading;
+ * the text before and after it stays. Without one, the section is appended.
+ */
+export function mergeMetadataSection(existing: string, section: string): string {
+  if (!existing.includes(METADATA_HEADING)) return existing + section;
+  const before = existing.substring(0, existing.indexOf(METADATA_HEADING));
+  const afterHeading = existing.substring(existing.indexOf(METADATA_HEADING));
+  const nextSection = afterHeading.indexOf('\n## ', 3);
+  const after = nextSection > 0 ? afterHeading.substring(nextSection) : '';
+  return before + section.trim() + '\n' + after;
+}
+
 export const unifiedMemoryTool = {
   name: 'mcp_m7_memory',
   description: `Unified M7 Memory System - 5-level cognitive hierarchy with FogOfWar
@@ -444,8 +460,11 @@ export const unifiedMemoryTool = {
                 const projectPath = getProjectPath();
                 const filePath = path.join(projectPath, bridgeTarget.file);
                 const entry = `\n### ${bridgeTarget.title}\n${content.substring(0, 500)}\n- **Level:** ${mappedLevel} | **Added:** ${new Date().toISOString().split('T')[0]}\n`;
-                await fs.appendFile(filePath, entry, 'utf-8');
-                response += `📝 Also synced to ${bridgeTarget.file}\n`;
+                // Only a file that M7 wrote (marker in its first 4 KB) is appended to.
+                const synced = await appendIfManaged(filePath, entry);
+                response += synced === 'appended'
+                  ? `📝 Also synced to ${bridgeTarget.file}\n`
+                  : `📝 Not synced to ${bridgeTarget.file} (the file is missing or not managed by M7)\n`;
               } catch (err) {
                 log.debug(`Reference file sync to ${bridgeTarget.file} failed:`, err);
               }
@@ -474,11 +493,15 @@ export const unifiedMemoryTool = {
           response += `✅ Pattern successfully stored.\n`;
 
           // v3.17: Side-effect — append pattern to CODING_STANDARDS.md
+          // Only a file that M7 wrote (marker in its first 4 KB) is appended to.
           try {
             const projectPath = getProjectPath();
             const standardsPath = path.join(projectPath, 'CODING_STANDARDS.md');
             const entry = `\n### ${pattern.name}\n- **Description:** ${pattern.description}\n- **Tags:** ${(pattern.tags || []).join(', ') || 'none'}\n- **Added:** ${new Date().toISOString().split('T')[0]}\n`;
-            await fs.appendFile(standardsPath, entry, 'utf-8');
+            const synced = await appendIfManaged(standardsPath, entry);
+            response += synced === 'appended'
+              ? `📝 Also synced to CODING_STANDARDS.md\n`
+              : `📝 Not synced to CODING_STANDARDS.md (the file is missing or not managed by M7)\n`;
           } catch (err) {
             log.debug('CODING_STANDARDS.md update failed (non-critical):', err);
           }
@@ -524,20 +547,11 @@ export const unifiedMemoryTool = {
               `- **Synced:** ${new Date().toISOString().split('T')[0]}`,
             ].filter(Boolean).join('\n') + '\n';
 
-            let existing = '';
-            try { existing = await fs.readFile(masterRefPath, 'utf-8'); } catch { /* new file */ }
-            
-            const marker = '## Project Metadata (auto-synced)';
-            if (existing.includes(marker)) {
-              const before = existing.substring(0, existing.indexOf(marker));
-              const afterMarker = existing.substring(existing.indexOf(marker));
-              const nextSection = afterMarker.indexOf('\n## ', 3);
-              const after = nextSection > 0 ? afterMarker.substring(nextSection) : '';
-              await fs.writeFile(masterRefPath, before + section.trim() + '\n' + after, 'utf-8');
-            } else {
-              await fs.appendFile(masterRefPath, section, 'utf-8');
-            }
-            response += `📝 Also synced to MASTER_REFERENCE.md\n`;
+            // Only a file that M7 wrote (marker in its first 4 KB) is changed; a missing file is not created.
+            const synced = await updateIfManaged(masterRefPath, existing => mergeMetadataSection(existing, section));
+            response += synced === 'updated'
+              ? `📝 Also synced to MASTER_REFERENCE.md\n`
+              : `📝 Not synced to MASTER_REFERENCE.md (the file is missing or not managed by M7)\n`;
           } catch (err) {
             log.debug('MASTER_REFERENCE.md sync failed (non-critical):', err);
           }
