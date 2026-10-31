@@ -7,7 +7,10 @@
  * 
  * Priority:
  * 1. Explicit project_path on tool call (applyProjectPath — sticky for session)
- * 2. MCP Roots (lazy retry on tool calls, not only oninitialized)
+ * 2. MCP Roots (lazy retry on tool calls, not only oninitialized). A
+ *    roots/list_changed notification reads them again and moves the session to
+ *    the new workspace; it never moves an explicit project_path, and when the new
+ *    read fails the session stays on its current project.
  * 3. CURSOR_WORKSPACE / WORKSPACE_FOLDER_PATHS env
  * 4. AGENT_TRANSCRIPTS env
  * 5. M7_PROJECT_PATH (the synchronous getProjectPath() uses it only after the
@@ -25,6 +28,7 @@ import { join, resolve, isAbsolute } from 'path';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { silentLogger as logger } from './logger.js';
 
 let cachedProjectPath: string | null = null;
@@ -33,6 +37,7 @@ let resolvedFromRoots = false;
 let rootsResolutionComplete = false;
 let mcpServerRef: unknown = null;
 let rootsChangeHandlerRegistered = false;
+let rootsChangeHandlerError: string | null = null;
 
 const ROOTS_TIMEOUT_MS = 8000;
 const ROOTS_MAX_ATTEMPTS = 5;
@@ -447,27 +452,29 @@ export async function fetchWorkspaceFromMcpRoots(server?: unknown): Promise<stri
 
 function registerRootsChangeHandler(mcpServer: unknown): void {
   if (rootsChangeHandlerRegistered) return;
-  rootsChangeHandlerRegistered = true;
 
   try {
     const underlying = (mcpServer as any).server || mcpServer;
-    underlying.setNotificationHandler?.({ method: 'notifications/roots/list_changed' }, async () => {
+    // The SDK takes the notification schema, not a plain { method } object.
+    underlying.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
       logger.info('[M7 ProjectPath] Roots changed notification received');
+      // An explicit project_path is sticky (see the order above): a Roots change does not move it.
+      if (userExplicitProjectPath) return;
       resolvedFromRoots = false;
-      userExplicitProjectPath = null;
       rootsAttemptCount = 0;
-      const oldPath = cachedProjectPath;
-      cachedProjectPath = null;
+      // The cache stays until the new answer arrives. If the client fails to answer, the
+      // session stays on its current project. When the answer names another path,
+      // applyResolvedWorkspace tells subscribers once, with the real old path.
       await fetchWorkspaceFromMcpRoots(mcpServer);
-      // The fetch has already told subscribers (its oldPath is null: the cache was cleared
-      // above). This second notice carries the real old path. Subscribers skip a path they
-      // already use (needsProjectSwitch), so the second notice changes nothing for them.
-      if (oldPath && cachedProjectPath && oldPath !== cachedProjectPath) {
-        notifyChange(oldPath, cachedProjectPath);
-      }
     });
-  } catch {
-    // Client may not support notifications
+    rootsChangeHandlerRegistered = true;
+    rootsChangeHandlerError = null;
+  } catch (err) {
+    // Not fatal, because a client that cannot take the handler must still get a working server.
+    // A Roots change is then not followed: the session keeps the project it has. This is not
+    // silent: getProjectPathDiagnostics() reports rootsChangeHandlerRegistered and the error.
+    rootsChangeHandlerError = err instanceof Error ? err.message : String(err);
+    logger.warn(`[M7 ProjectPath] Could not register the Roots change handler: ${rootsChangeHandlerError}`);
   }
 }
 
@@ -563,6 +570,7 @@ export function resetProjectPathStateForTests(): void {
   rootsResolutionComplete = false;
   mcpServerRef = null;
   rootsChangeHandlerRegistered = false;
+  rootsChangeHandlerError = null;
   rootsAttemptCount = 0;
 }
 
@@ -573,6 +581,10 @@ export function getProjectPathDiagnostics(): {
   rootsResolutionComplete: boolean;
   userExplicitProjectPath: string | null;
   rootsAttemptCount: number;
+  /** The roots/list_changed handler is registered with the client's server. */
+  rootsChangeHandlerRegistered: boolean;
+  /** Why it is not, when registering failed. */
+  rootsChangeHandlerError: string | null;
   cursorWorkspace?: string;
   m7ProjectPath?: string;
   agentTranscripts?: string;
@@ -616,6 +628,8 @@ export function getProjectPathDiagnostics(): {
     rootsResolutionComplete,
     userExplicitProjectPath,
     rootsAttemptCount,
+    rootsChangeHandlerRegistered,
+    rootsChangeHandlerError,
     cursorWorkspace,
     m7ProjectPath,
     agentTranscripts,

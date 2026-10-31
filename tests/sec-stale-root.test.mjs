@@ -1,5 +1,6 @@
 /**
- * SEC-21 (HIGH): every part of the server must work on the project the server resolved.
+ * SEC-21 (HIGH): every part of the server must work on the project the server resolved,
+ * and must follow it when the client's Roots change.
  *
  * Failure before the fix: the constructor builds memory, journal, schema, orchestrator and
  * scope guard on the working directory, and several tools hold singletons or closures built
@@ -19,8 +20,8 @@
  *
  * The in-process tests call the built module `dist/core/utils/projectPath.js` with fake
  * servers. They cover the notice itself, the pure decision `needsProjectSwitch`, a
- * subscriber that must not rebuild for a path it already uses, and the terminal path after
- * the Roots attempts ran out.
+ * subscriber that must not rebuild for a path it already uses, the terminal path after
+ * the Roots attempts ran out, and the registration of the `roots/list_changed` handler.
  *
  * Tests of the new export read it from the module inside the test, so a missing export
  * fails only that test and never hides the others.
@@ -124,8 +125,11 @@ function startNoRoots({ cwd, m7ProjectPath, env = {} }) {
  * after `delayMs`. A delay keeps the first tool call ahead of the answer.
  * The first `failFirst` requests fail. `beforeConnect({ stderr })` runs after the server process
  * started and before the MCP handshake; it lets a test change the world between the two.
+ * With `listChanged` the client declares `roots.listChanged`; then setRoots(), failRoots() and
+ * sendRootsListChanged() change what it answers and tell the server, and rootsCalls() counts
+ * the `roots/list` requests the server made.
  */
-async function startWithRoots({ cwd, roots, delayMs = 0, env = {}, failFirst = 0, beforeConnect = null }) {
+async function startWithRoots({ cwd, roots, delayMs = 0, env = {}, failFirst = 0, listChanged = false, beforeConnect = null }) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
   const { ListRootsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
@@ -138,13 +142,16 @@ async function startWithRoots({ cwd, roots, delayMs = 0, env = {}, failFirst = 0
   });
   const stderrChunks = [];
   transport.stderr?.on('data', chunk => stderrChunks.push(String(chunk)));
-  let calls = 0;
-  const client = new Client({ name: 'stale-root-e2e', version: '0.0.0' }, { capabilities: { roots: {} } });
+  const state = { roots, calls: 0, failAll: false };
+  const client = new Client(
+    { name: 'stale-root-e2e', version: '0.0.0' },
+    { capabilities: { roots: listChanged ? { listChanged: true } : {} } },
+  );
   client.setRequestHandler(ListRootsRequestSchema, async () => {
-    calls++;
+    state.calls++;
     await sleep(delayMs);
-    if (calls <= failFirst) throw new Error('roots unavailable');
-    return { roots: roots.map(dir => ({ uri: pathToFileURL(dir).href, name: path.basename(dir) })) };
+    if (state.calls <= failFirst || state.failAll) throw new Error('roots unavailable');
+    return { roots: state.roots.map(dir => ({ uri: pathToFileURL(dir).href, name: path.basename(dir) })) };
   });
   if (beforeConnect) {
     await transport.start();
@@ -178,7 +185,14 @@ async function startWithRoots({ cwd, roots, delayMs = 0, env = {}, failFirst = 0
     return false;
   }
 
-  return { client, transport, pid, call, stop, stderr: () => stderrChunks.join('') };
+  return {
+    client, transport, pid, call, stop,
+    stderr: () => stderrChunks.join(''),
+    setRoots: dirs => { state.roots = dirs; },
+    failRoots: on => { state.failAll = on; },
+    rootsCalls: () => state.calls,
+    sendRootsListChanged: () => client.sendRootsListChanged(),
+  };
 }
 
 /** Polls `predicate` every 50 ms for up to `ms`; true as soon as it holds. */
@@ -287,7 +301,7 @@ describe('SEC-21: subscribers hear the first resolution', () => {
     assert.deepEqual(events, [[null, b]], 'the same path again must not notify');
   });
 
-  it('a Roots change that reaches subscribers twice causes one switch', async () => {
+  it('a Roots change reaches subscribers once and causes one switch', async () => {
     const { needsProjectSwitch } = pp;
     assert.equal(typeof needsProjectSwitch, 'function', 'projectPath.js must export needsProjectSwitch');
     const b = project();
@@ -306,9 +320,8 @@ describe('SEC-21: subscribers hear the first resolution', () => {
     current = [c];
     await onListChanged();
 
-    // The handler notifies from inside the Roots fetch (oldPath null, because it clears the
-    // cache first) and again once the fetch returns (oldPath b).
-    assert.deepEqual(events, [[null, c], [b, c]]);
+    // The handler keeps the cache until the new answer arrives, so the one notice carries the real old path.
+    assert.deepEqual(events, [[b, c]]);
 
     // What the server does with these notices: it switches only when it is not on newPath yet.
     let held = b;
@@ -319,7 +332,7 @@ describe('SEC-21: subscribers hear the first resolution', () => {
         switches++;
       }
     }
-    assert.equal(switches, 1, 'two notices for one change must cause one switch');
+    assert.equal(switches, 1, 'one notice for one change must cause one switch');
     assert.equal(held, c);
   });
 
@@ -677,5 +690,159 @@ describe('SEC-21: the wrapper waits for the workspace', () => {
     assert.ok(callAt > waitAt, 'the wrapper await must come before await handler(args)');
     assert.doesNotMatch(src, /createScopeTool\(this\./, 'createScopeTool still captures a system built at start');
     assert.doesNotMatch(src, /createTaskTransferTool\(this\./, 'createTaskTransferTool still captures a system built at start');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A Roots change during the session (real process, live probe)
+// ---------------------------------------------------------------------------
+
+describe('SEC-21: a Roots change moves the session', () => {
+  /** Roots answer B; waits until the server has switched to `next`, which the debug log reports. */
+  async function changeRoots(s, next, { expectSwitch = true } = {}) {
+    const seen = s.rootsCalls();
+    s.setRoots([next]);
+    await s.sendRootsListChanged();
+    assert.ok(
+      await waitFor(() => s.rootsCalls() > seen),
+      'the server did not ask roots/list again after roots/list_changed',
+    );
+    if (expectSwitch) {
+      assert.ok(
+        await waitFor(() => s.stderr().includes(`→ ${next}`)),
+        `the server did not switch to ${next}`,
+      );
+    }
+  }
+
+  it('the update after the change writes C; B and A stay unchanged', T, async () => {
+    const { A, B, C } = await makeTrio();
+    const beforeA = await snapshot(A);
+    let beforeB;
+    let first = '';
+    let second = '';
+    await session(
+      () => startWithRoots({ cwd: A, roots: [B], listChanged: true, env: { M7_DEBUG: 'true' } }),
+      async s => {
+        first = (await s.call(SCHEMA_TOOL, UPDATE('written-in-b'))).text;
+        await sleep(1300); // the journal batches its writes for one second
+        beforeB = await snapshot(B);
+        await changeRoots(s, C);
+        second = (await s.call(SCHEMA_TOOL, UPDATE('written-in-c'))).text;
+      },
+    );
+    assert.match(first, /"success": true/, `the first update must succeed:\n${first.slice(0, 500)}`);
+    assert.match(second, /"success": true/, `the second update must succeed:\n${second.slice(0, 500)}`);
+    assert.match(await readText(path.join(B, 'PROJECT_SCHEMA.yaml')), /written-in-b/, 'project B did not get the first update');
+    assert.match(await readText(path.join(C, 'PROJECT_SCHEMA.yaml')), /written-in-c/, 'project C did not get the update after the change');
+    assertUntouched('project B after the change', beforeB, await snapshot(B));
+    assertUntouched('the working directory', beforeA, await snapshot(A));
+  });
+
+  it('analyze_task after the change puts the task graph in C and not in B', T, async () => {
+    const { A, B, C } = await makeTrio();
+    const beforeA = await snapshot(A);
+    await session(
+      () => startWithRoots({ cwd: A, roots: [B], listChanged: true, env: { M7_DEBUG: 'true' } }),
+      async s => {
+        await s.call(SCHEMA_TOOL, VIEW);
+        await changeRoots(s, C);
+        await s.call('mcp_m7_analyze_task', { task_description: TASK });
+      },
+    );
+    assert.ok(existsSync(path.join(C, '.m7', 'task-graph.json')), 'the task graph of project C was not written');
+    assert.ok(!existsSync(path.join(B, '.m7', 'task-graph.json')), 'the task graph went to project B');
+    assertUntouched('the working directory', beforeA, await snapshot(A));
+  });
+
+  it('an explicit project_path stays after a Roots change', T, async () => {
+    const { A, B, C, D } = await makeProjects(['A', 'B', 'C', 'D']);
+    const beforeA = await snapshot(A);
+    const beforeB = await snapshot(B);
+    const beforeC = await snapshot(C);
+    let text = '';
+    await session(
+      () => startWithRoots({ cwd: A, roots: [B], listChanged: true }),
+      async s => {
+        await s.call('mcp_m7_init_project', { project_path: D, force: true });
+        const seen = s.rootsCalls();
+        s.setRoots([C]);
+        await s.sendRootsListChanged();
+        await sleep(1500); // nothing to wait for: the server must not react
+        assert.equal(s.rootsCalls(), seen, 'the server asked roots/list although an explicit project_path is set');
+        text = (await s.call(SCHEMA_TOOL, UPDATE('written-in-d'))).text;
+      },
+    );
+    assert.match(text, /"success": true/, `the update must succeed:\n${text.slice(0, 500)}`);
+    assert.match(await readText(path.join(D, 'PROJECT_SCHEMA.yaml')), /written-in-d/, 'the explicit project did not get the update');
+    assertUntouched('project B', beforeB, await snapshot(B));
+    assertUntouched('project C', beforeC, await snapshot(C));
+    assertUntouched('the working directory', beforeA, await snapshot(A));
+  });
+
+  it('a refresh that fails leaves the session on B, and the tools still work on B', T, async () => {
+    const { A, B } = await makeTrio();
+    const beforeA = await snapshot(A);
+    let update = '';
+    await session(
+      () => startWithRoots({ cwd: A, roots: [B], listChanged: true }),
+      async s => {
+        await s.call(SCHEMA_TOOL, VIEW);
+        const seen = s.rootsCalls();
+        s.failRoots(true);
+        await s.sendRootsListChanged();
+        assert.ok(
+          await waitFor(() => s.rootsCalls() > seen),
+          'the server did not ask roots/list again after roots/list_changed',
+        );
+        await sleep(500); // the server handles the failure
+        update = (await s.call(SCHEMA_TOOL, UPDATE('written-after-failed-refresh'))).text;
+        await s.call('mcp_m7_analyze_task', { task_description: TASK });
+      },
+    );
+    assert.match(update, /"success": true/, `the update must succeed:\n${update.slice(0, 500)}`);
+    assert.match(await readText(path.join(B, 'PROJECT_SCHEMA.yaml')), /written-after-failed-refresh/, 'project B did not get the update');
+    assert.ok(existsSync(path.join(B, '.m7', 'task-graph.json')), 'the task graph of project B was not written');
+    assertUntouched('the working directory', beforeA, await snapshot(A));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registering the roots/list_changed handler (in process)
+// ---------------------------------------------------------------------------
+
+describe('SEC-21: registering the roots/list_changed handler', () => {
+  beforeEach(() => pp.resetProjectPathStateForTests());
+  after(() => pp.resetProjectPathStateForTests());
+
+  it('a server whose setNotificationHandler throws does not stop the binding, and diagnostics say so', () => {
+    const server = {
+      setNotificationHandler: () => {
+        throw new Error('boom: cannot register');
+      },
+      listRoots: async () => ({ roots: [] }),
+    };
+    assert.doesNotThrow(() => pp.bindMcpServerForRoots(server));
+    const diag = pp.getProjectPathDiagnostics();
+    assert.equal(diag.rootsChangeHandlerRegistered, false);
+    assert.match(String(diag.rootsChangeHandlerError), /boom: cannot register/);
+
+    pp.resetProjectPathStateForTests();
+    const cleared = pp.getProjectPathDiagnostics();
+    assert.equal(cleared.rootsChangeHandlerRegistered, false);
+    assert.equal(cleared.rootsChangeHandlerError ?? null, null, 'the reset must clear the recorded failure');
+  });
+
+  it('a working server gets the handler with the SDK schema, and diagnostics report it', async () => {
+    const { RootsListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
+    const got = [];
+    const server = { setNotificationHandler: (schema, handler) => got.push({ schema, handler }) };
+    pp.bindMcpServerForRoots(server);
+    assert.equal(got.length, 1, 'the handler must be registered once');
+    assert.ok(got[0].schema === RootsListChangedNotificationSchema, 'the handler must be registered with the SDK schema, not a plain object');
+    assert.equal(typeof got[0].handler, 'function');
+    const diag = pp.getProjectPathDiagnostics();
+    assert.equal(diag.rootsChangeHandlerRegistered, true);
+    assert.equal(diag.rootsChangeHandlerError ?? null, null);
   });
 });

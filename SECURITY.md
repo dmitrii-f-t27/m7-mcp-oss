@@ -212,7 +212,7 @@ function name if a line is off.
 | SEC-18 | LOW | Debug log held the first 50 characters of the task text | FIXED (stage 2.3): the log holds the length only | `src/core/intelligence/intentClassifier.ts:307` | `tests/sec-classifier.test.mjs` |
 | SEC-19 | ? | Not traced: the `path` input of `style_guardian`, `hub_path` of the knowledge hub config, `trackChange` in the scope guard. `routeToReferenceFile` was traced: it returns fixed file names | OPEN, unknown | `src/core/tools/v3/style-guardian-tool.ts:29`; `src/core/tools/knowledgeHub/types.ts:356`; `src/core/guards/scopeGuard.ts:104`; `src/core/tools/unified/memoryTool.ts:276-302` | none |
 | SEC-20 | MED | `knowledge_hub` `init` and `migrate` move your `INDEX.md` and similar root files into the hub; `rename` replaces an existing target | OPEN; runs only on an explicit hub action, not from `analyze_task` or `init_project`; a backup of the files goes to `.m7/backups/knowledge-hub/` first | `src/core/tools/knowledgeHub/core/MigrationManager.ts:23`, `:77-81`, `:132`; `src/core/tools/knowledgeHub/utils/fileUtils.ts:132`; `src/core/tools/knowledgeHub/core/KnowledgeHub.ts:131-136`; `src/core/tools/knowledgeHub/knowledgeHubTool.ts:135` (action `init`), `:202` (action `migrate`) | none |
-| SEC-21 | MED | At server start the systems (memory, journal, schema, scope guard) are built on the start-up path, usually the install directory, while `M7_PROJECT_PATH` is set and MCP Roots are unfinished. They move only when the path-change callback fires. `contracts.ts` can write `PROJECT_SCHEMA.yaml` into the stale root | OPEN; to be reviewed | `src/index.ts:168`, `:191-198`, `:205`; `src/core/tools/critical/contracts.ts:383` | none |
+| SEC-21 | MED | The systems (memory, journal, schema, orchestrator, scope guard) and some tools (task graph, task transfer, scope, TSI) were built on the start-up path, usually the install directory. They stayed there when `M7_PROJECT_PATH` or MCP Roots named another project, so a schema update, a contract, the journal, the task graph or the TSI data could be written into the wrong project. A Roots change during a session was not followed either: the handler never registered with the installed SDK | FIXED, with one accepted limit; see "SEC-21 details" | `src/index.ts:202-224` (change callback), `:255-270` (TSI built on first use), `:295` and `:607` (tools read the systems when they run), `:807` (wait in `registerTool`); `src/core/utils/projectPath.ts:336`, `:365` (caching tells subscribers), `:453-479` (Roots change handler), `:631-632` (diagnostics); `src/tsi/tsiSystem.ts:370`, `src/tsi/index.ts:90`; singleton resets at `src/core/task-graph/taskGraphManager.ts:458`, `src/core/task-transfer/transferManager.ts:341`, `src/core/compliance/complianceTracker.ts:320`, `src/core/utils/manifest.ts:357`, `src/core/devops/devopsRegistry.ts:583`, `src/knowledge-graph/index.ts:414` | `tests/sec-stale-root.test.mjs` |
 | SEC-22 | LOW | `validatePath` in the knowledge hub uses a bare prefix check | OPEN, latent: nothing in `src` or `tests` calls it | `src/core/tools/knowledgeHub/utils/fileUtils.ts:166-175` | none |
 | SEC-23 | LOW | `create_structure`: a `task_id` such as `../../x` stays inside the project but can put templates outside `docs/` | OPEN, LOW | `src/core/tools/createStructure.ts:73`, `:218-220` (name), `:188-191` (containment) | `tests/sec-write-paths.test.mjs` (containment only) |
 | SEC-24 | LOW | `push-file` can send control paths such as `.git/config` (only `pull-file` refuses them) | OPEN, by design | `src/core/security/pathGuard.ts:93`, `:102` | none |
@@ -271,6 +271,22 @@ function name if a line is off.
   source has no `AbortController` under `src/hive`. `CANCELLED` in
   `src/hive/orchestrator/plannerOrchestrator.ts:241` marks a sub-task that
   threw an error. It is not a user cancel.
+- **SEC-21 details.** While the Roots step is open, every tool call first waits
+  for the workspace (`src/index.ts:807`). After the step is finished the wait
+  costs nothing. The systems and the singletons that hold project state follow
+  the project: the task graph manager, the task transfer manager, the
+  compliance tracker, the manifest manager, the DevOps registry and the
+  knowledge graph reset when the path changes. TSI is built on its first tool
+  call, not at start. A `roots/list_changed` notification now moves the session
+  to the new workspace, with one notice per change. It does not move an explicit
+  `project_path` (SEC-16), and a read that fails leaves the session on its
+  current project. If the server cannot register the handler, it still runs, and
+  `getProjectPathDiagnostics()` reports `rootsChangeHandlerRegistered: false` and
+  the error. **Accepted limit:** while Roots are pending and no path is set,
+  `ensureProjectPathResolved` returns an uncached guess with no notice. The
+  systems then stay on the working directory until the attempts run out, after
+  at most 5 attempts. MCP resources (`m7://...`) only read, and may read state of
+  the working directory in the same window.
 
 ## Dependencies: `npm audit`
 
