@@ -142,7 +142,7 @@ import { generateIntelligentHints, addHintsToResponse } from './core/utils/hintG
 // Import schema converter
 import { extractZodSchema } from './core/utils/schemaConverter.js';
 // Import project path utility
-import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved } from './core/utils/projectPath.js';
+import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved, needsProjectSwitch } from './core/utils/projectPath.js';
 import { registerShutdownContributor } from './core/shutdown/flushOnExit.js';
 import { PACKAGE_VERSION } from './core/utils/packageVersion.js';
 class M7MCPServer {
@@ -203,10 +203,17 @@ class M7MCPServer {
     log('✅ [M7 DEBUG] TSI System initialized');
 
     onProjectPathChange((oldPath, newPath) => {
-      if (oldPath === newPath) return;
+      // The first resolution arrives with oldPath null, and the constructor may have guessed
+      // the right path already. A Roots change can also announce one path twice.
+      // Switch only when the systems below are not on newPath yet.
+      if (!needsProjectSwitch(this.projectPath, newPath)) return;
       log(`[M7 Server] Project path changed: ${oldPath ?? '(none)'} → ${newPath}`);
       this.projectPath = newPath;
       this.memory = new MemorySystem(newPath);
+      const previousJournal = this.journal;
+      previousJournal.shutdown().catch(err =>
+        log(`[M7 Server] Journal flush before project switch failed: ${err.message}`)
+      );
       this.journal = new JournalSystem(newPath);
       this.schema = new SchemaSystem(this.journal, newPath);
       const previousOrchestrator = this.orchestrator;
@@ -255,9 +262,12 @@ class M7MCPServer {
   private setupTools() {
     
     // 1. Analyze Task Tool
-    this.registerTool(analyzeTaskTool, (request: any) => 
-      analyzeTaskTool.handler(request, this.router, this.orchestrator, this.schema, this.server)
-    );
+    this.registerTool(analyzeTaskTool, async (request: any) => {
+      // Wait for the workspace first: the first call can arrive before Roots are answered,
+      // and this.orchestrator and this.schema are rebuilt when the workspace resolves.
+      await ensureProjectPathResolved(this.server);
+      return analyzeTaskTool.handler(request, this.router, this.orchestrator, this.schema, this.server);
+    });
 
     // 2. Memory Tool
     this.registerTool(unifiedMemoryTool, (request: any) => 
@@ -296,6 +306,8 @@ class M7MCPServer {
 
     // 11. Schema Tool
     this.registerTool(schemaTool, async (request: any) => {
+      // Wait for the workspace first, so this.schema belongs to the right project.
+      await ensureProjectPathResolved(this.server);
       const { action, component, changes, format } = request;
       
       switch (action) {
@@ -425,8 +437,11 @@ class M7MCPServer {
     }
     
     try {
-      this.registerTool(contractsTool, (request: any) => 
-        contractsTool.handler(request, { journal: this.journal, schema: this.schema }));
+      this.registerTool(contractsTool, async (request: any) => {
+        // Wait for the workspace first, so this.journal and this.schema belong to the right project.
+        await ensureProjectPathResolved(this.server);
+        return contractsTool.handler(request, { journal: this.journal, schema: this.schema });
+      });
       log('✅ [M7 DEBUG] contractsTool registered');
     } catch (error: any) {
       log('❌ [M7 DEBUG] contractsTool registration failed:', error.message);

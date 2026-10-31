@@ -368,12 +368,24 @@ function notifyChange(oldPath: string | null, newPath: string): void {
   }
 }
 
+/**
+ * Pure: must a subscriber that works on `current` switch to `next`?
+ * `current` is null while the subscriber has no path yet, so it must switch.
+ * Paths are compared after resolve(): a trailing separator or a `..` segment is no change.
+ * Subscribers call this first, because the same path can be announced more than once.
+ */
+export function needsProjectSwitch(current: string | null, next: string): boolean {
+  return current === null || resolve(current) !== resolve(next);
+}
+
 function applyResolvedWorkspace(workspacePath: string, fromRoots: boolean): string {
   const oldPath = cachedProjectPath;
   cachedProjectPath = resolve(workspacePath);
   resolvedFromRoots = fromRoots;
   logger.info(`[M7 ProjectPath] ${fromRoots ? 'Resolved from MCP Roots' : 'Resolved workspace'}: ${cachedProjectPath}`);
-  if (oldPath && oldPath !== cachedProjectPath) {
+  // The first resolution has no earlier path (oldPath null). Subscribers built their
+  // state on the path the constructor guessed, so they must hear this one too.
+  if (needsProjectSwitch(oldPath, cachedProjectPath)) {
     notifyChange(oldPath, cachedProjectPath);
   }
   return cachedProjectPath;
@@ -446,6 +458,9 @@ function registerRootsChangeHandler(mcpServer: unknown): void {
       const oldPath = cachedProjectPath;
       cachedProjectPath = null;
       await fetchWorkspaceFromMcpRoots(mcpServer);
+      // The fetch has already told subscribers (its oldPath is null: the cache was cleared
+      // above). This second notice carries the real old path. Subscribers skip a path they
+      // already use (needsProjectSwitch), so the second notice changes nothing for them.
       if (oldPath && cachedProjectPath && oldPath !== cachedProjectPath) {
         notifyChange(oldPath, cachedProjectPath);
       }

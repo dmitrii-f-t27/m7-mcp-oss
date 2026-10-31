@@ -22,7 +22,7 @@ import {
   validateConsolidation,
 } from '../promotionConsolidation.js';
 import path from 'path';
-import { getProjectPath, onProjectPathChange } from '../../core/utils/projectPath.js';
+import { getProjectPath, onProjectPathChange, needsProjectSwitch } from '../../core/utils/projectPath.js';
 import { createLogger } from '../../core/utils/logger.js';
 import { atomicWriteJSON, safeReadJSON } from '../../core/utils/atomicWrite.js';
 
@@ -1374,7 +1374,10 @@ function retireMemoryCore(): void {
 }
 
 // v3.19: Auto-reset singleton when workspace changes (MCP roots/list_changed)
-onProjectPathChange((_oldPath, _newPath) => {
+onProjectPathChange((_oldPath, newPath) => {
+  // The same path can be announced more than once (first resolution, Roots change).
+  // A core that already works on newPath keeps its state.
+  if (!needsProjectSwitch(memoryCoreProjectPath, newPath)) return;
   log.info(`Workspace changed, resetting MemoryCore singleton`);
   retireMemoryCore();
 });
