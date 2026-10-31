@@ -244,8 +244,15 @@ export interface MigrationResult {
   message: string;
   migrated_count: number;
   migrated_files?: MigratedFile[];
+  /** Root documents left in place because the hub already has a file at their target. */
+  skipped_files?: SkippedMigration[];
   backup_location?: string;
   errors?: string[];
+}
+
+export interface SkippedMigration {
+  original_path: string;
+  existing_target: string;
 }
 
 export interface MigratedFile {

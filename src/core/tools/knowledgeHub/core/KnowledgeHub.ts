@@ -127,14 +127,8 @@ export class KnowledgeHub {
       await saveConfig(this.projectPath, config);
       this.config = config;
       
-      // Scan for existing documents to migrate
-      const existingDocs = await this.migrationManager.scanExistingDocuments();
-      
-      let migrationResult: MigrationResult | undefined;
-      if (existingDocs.length > 0) {
-        // Auto-migrate if found
-        migrationResult = await this.migrationManager.migrate(existingDocs);
-      }
+      // init never moves a project file (SEC-20): root documents such as INDEX.md stay
+      // where they are. Moving them is the explicit action `migrate`.
       
       // Generate missing core documents (if any)
       await this.generateMissingDocuments();
@@ -160,7 +154,7 @@ export class KnowledgeHub {
             initialized_at: new Date().toISOString(),
             hub_path: hubPath,
             documents: config.documents.length,
-            migrated: migrationResult?.migrated_count || 0
+            migrated: 0
           }),
           {
             level: 'L2',
@@ -177,7 +171,7 @@ export class KnowledgeHub {
         success: true,
         hub_path: hubPath,
         documents_created: config.documents.length,
-        documents_migrated: migrationResult?.migrated_count || 0,
+        documents_migrated: 0,
         config: config,
         next_steps: [
           'Review generated documents in knowledge-hub/',

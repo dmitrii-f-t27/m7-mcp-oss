@@ -5,7 +5,8 @@ import { constants as fsConstants, promises as fs } from 'fs';
  *
  * M7 may create a project file that is absent. It may change a file later only
  * when the file carries M7_MANAGED_MARKER in its first MANAGED_SCAN_BYTES bytes.
- * Everything else is the user's file: M7 skips it and says so.
+ * Everything else is the user's file: M7 skips it. Most tools list the skipped file in
+ * their answer; a skipped memory-bank/activeContext.md only gets a debug log line.
  *
  * The decision rules below are pure (no I/O). The functions at the end do the I/O.
  */

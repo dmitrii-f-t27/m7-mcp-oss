@@ -17,6 +17,7 @@ import {
   ValidationError
 } from '../types.js';
 import { safeReadFile, safeWriteFile, fileExists } from './fileUtils.js';
+import { isInside } from '../../../security/pathGuard.js';
 
 /**
  * Load configuration from hub-config.yaml
@@ -153,6 +154,19 @@ export function getDocumentPath(
   documentPath: string
 ): string {
   return path.join(getHubPath(projectPath), documentPath);
+}
+
+/**
+ * Pure. The absolute path of `documentPath` below the hub of `projectPath`, or null when
+ * it is not strictly inside the hub: it climbs out with `..`, it names the hub itself,
+ * or it holds a NUL byte (SEC-19). Symlinks are not looked at here; DocumentManager
+ * resolves them. A path that looks absolute is joined below the hub, as it always was.
+ */
+export function hubDocumentPath(projectPath: string, documentPath: string): string | null {
+  if (documentPath.indexOf('\0') !== -1) return null;
+  const hub = getHubPath(projectPath);
+  const full = getDocumentPath(projectPath, documentPath);
+  return full !== hub && isInside(hub, full) ? full : null;
 }
 
 /**

@@ -33,7 +33,7 @@ makes these requests. They use your keys and carry no task text.
 
 - **At server start:** a model list request to OpenAI, and one 1-token `Hi`
   message to Anthropic for each of five model names (model discovery, to pick
-  models for Hive).
+  models for Hive). There is no switch for this (SEC-29).
 - **On the first `mcp_m7_analyze_task` call of a server process:** a model list
   request to OpenAI and one to Anthropic (the time and models header). The
   result is kept in memory for 24 hours.
@@ -46,7 +46,8 @@ makes these requests. They use your keys and carry no task text.
   is active, the context of the other M7 instances (role, project path, the
   first 12 characters of the instance id, the process id and up to three
   published context texts of 150 characters each). The text from other
-  instances is marked as untrusted data. The switch above does not cover Hive.
+  instances is marked as untrusted data. The switch above does not cover Hive,
+  and nothing turns off the memory chunks or the peer contexts (SEC-30).
 - **Telemetry** is sent only if you set `M7_TELEMETRY_ENDPOINT`.
 - **Mesh relay** traffic goes only to the host in `M7_MESH_RELAY`.
 - **ChromaDB** is read at `CHROMA_URL` (default `http://localhost:8000`).
@@ -153,19 +154,29 @@ Workstations join it with `M7_MESH_RELAY` and `M7_MESH_SECRET`.
   replaces only `mcpServers.m7`. Every other server and every other top-level
   key stays. The installer still copies the file to
   `mcp.json.backup.<time>` first (`install.sh:268`).
-- **No key goes into `mcp.json`.** The `m7` entry holds `command`, `args` and
-  `cwd` only (`scripts/merge-cursor-config.mjs:30-36`). The server reads its
-  keys from the `.env` file (see the `.env` section above).
+- **No API key goes into `mcp.json`.** The `m7` entry holds `command`, `args`
+  and `cwd`, plus the `env` block of an old `m7` entry when it holds other
+  variables. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are dropped from that
+  block and every other variable stays, so a saved `M7_PROJECT_PATH` or
+  `M7_MESH_*` survives a re-install. The block is left out when nothing is left
+  in it (`scripts/merge-cursor-config.mjs:38`, `:44-48`, `:54-62`). Other secrets you saved there,
+  such as `M7_MESH_SECRET`, stay in `mcp.json` as you saved them. The server
+  reads its keys from the `.env` file (see the `.env` section above).
 - **A file the script cannot merge into is left alone.** That means a file that
   is not valid JSON (an empty file too), whose top level is not an object, or
   whose `mcpServers` is not an object. The script writes nothing, prints the
   reason to stderr and exits with code 2. The installer then reports that the
-  Cursor configuration was not changed and goes on (`install.sh:275-281`).
+  Cursor configuration was not changed and goes on (`install.sh:275-281`). The
+  same holds for a symbolic link whose target does not exist, or that loops
+  (`scripts/merge-cursor-config.mjs:69-72`). A link to an existing file is
+  written through and stays a link. The temporary file is created with mode 600
+  and gets the mode of the old file just before the rename.
 - **If you used the old installer,** your `mcp.json` can hold your API keys in
   plain text under `mcpServers.m7.env`, and so can every `mcp.json.backup.*`
-  file next to it. Updating the `m7` entry with the new installer removes the
-  `env` block from `mcp.json`. It does not touch the backup files. Delete them
-  yourself, and rotate a key if the file was ever shared.
+  file next to it. Updating the `m7` entry with the new installer removes
+  `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` from that `env` block, and removes
+  the block when nothing else is in it. It does not touch the backup files.
+  Delete them yourself, and rotate a key if the file was ever shared.
 - **Docker.** The installer no longer offers to start ChromaDB with Docker. The
   repository has no `docker-compose.yml`, so the old step could only fail.
   ChromaDB stays optional (`CHROMA_URL`).
@@ -179,9 +190,9 @@ This is a list of what was found, what was changed and what was checked. It is
 not a claim that M7 is secure. Section "What is not verified" below lists what
 no test here can show.
 
-`file:line` refers to the tree that contains this file, after stage 2.8 of the
-`clean-secure-t27` branch. Line numbers move when code changes. Search for the
-function name if a line is off.
+`file:line` refers to the tree that contains this file, on the `clean-secure-t27`
+branch. Line numbers move when code changes. Search for the function name if a
+line is off.
 
 - FIXED: the code no longer does the thing. Each test file named in the last
   column had tests that failed on the old code. Some tests in those files pass
@@ -193,79 +204,141 @@ function name if a line is off.
 | ID | Sev | Risk | Status | Where | Test |
 |---|---|---|---|---|---|
 | SEC-1 | HIGH | Shell command built from task text | FIXED; already so at the base commit `0ace0ab`, unchanged here. Every child process in `src` is started with an argument list (`git`, `grep`, `rg`); a text search finds no `shell: true` and no `execSync(` | `src/core/architecture/architecture-context-analyzer.ts:30-43` (argv `--fixed-strings -e <keyword> --`), `:145-147` (`execFileAsync`, no shell); `src/hive/context/fileSearcher.ts:9`, `:48`; `src/core/tools/projectIndex/projectScanner.ts:138`; `src/telemetry/gitCapture.ts:53` | none added |
-| SEC-2 | HIGH | `analyze_task` and `init_project` overwrite project files | FIXED (stage 2.1), with the exceptions below | `src/core/utils/safeWrite.ts:14`, `:64-72` (`wx`), `:123`, `:133`; `src/core/tools/initProject.ts:48`, `:225`, `:238`, `:255`, `:297`; `src/core/tools/analyzeTask.ts:264-266`, `:914`; `src/core/tools/unified/memoryTool.ts:464`, `:501`, `:551` | `tests/sec-init-overwrite.test.mjs` |
-| SEC-3 | MED | Task text sent to OpenAI, twice per `analyze_task`, not documented | FIXED (stage 2.3): local by default, opt-in | `src/core/intelligence/intentClassifier.ts:220`, `:232`, `:257`, `:278`, `:293-300`, `:307`, `:309`; callers `src/core/tools/analyzeTask.ts:300`, `src/core/router.ts:93` | `tests/sec-classifier.test.mjs` |
+| SEC-2 | HIGH | `analyze_task` and `init_project` overwrite project files | FIXED, with the exceptions below | `src/core/utils/safeWrite.ts:65` (`writeIfAbsent`, `wx`), `:102` (`readManagedState`), `:137`, `:147`; `src/core/tools/initProject.ts:43-55` (`createFile`), `:221-231` (empty rule), `:251-257`, `:903-930` (`.gitignore`); `src/core/tools/analyzeTask.ts:265-267`, `:899-923`; `src/core/tools/unified/memoryTool.ts:310`, `:316`, `:484`, `:520`, `:569` | `tests/sec-init-overwrite.test.mjs`, `tests/sec-write-paths.test.mjs` |
+| SEC-3 | MED | Task text sent to OpenAI, twice per `analyze_task`, not documented | FIXED: local by default, opt-in | `src/core/intelligence/intentClassifier.ts:220`, `:232`, `:257`, `:278`, `:293-300`, `:307`, `:309`; callers `src/core/tools/analyzeTask.ts:301`, `src/core/router.ts:93` | `tests/sec-classifier.test.mjs` |
 | SEC-4 | MED | `analyze_task` starts Docker | FIXED; already so at the base commit `0ace0ab` | `src` starts no Docker process (the only child processes are `git`, `grep` and `rg`, see SEC-1). The health check is one HTTP GET, `src/core/health/healthCheck.ts:54`. `src/core/warmup/warmupManager.ts:626` and `src/core/tools/projectIndex/projectScanner.ts:579` only test that a file exists, and `src/core/tools/projectIndex/projectScanner.ts:580` adds the text `docker-compose up` to a generated quick-start list without running it | none added |
-| SEC-5 | MED | The Cursor activity guess beat `M7_PROJECT_PATH` | FIXED (stage 2.4) | `src/core/utils/projectPath.ts:8-22` (order), `:250-253`, `:281-287` (`selectProjectSource`), `:484-489` (`ensureProjectPathResolved`), `:553` (diagnostics) | `tests/sec-project-path.test.mjs` |
-| SEC-6 | MED | Visualizer on all interfaces, no auth, `CORS *` | FIXED (stage 2.5); no token, see limits | `src/visualizer/visualizer-server.ts:36`, `:44`, `:56`, `:161`, `:177`, `:224-235`, `:767`; `src/core/tools/v3/visualizer-tool.ts:168-176` | `tests/sec-visualizer.test.mjs` |
-| SEC-7 | MED | Mesh writes peer files and injects peer messages | FIXED (stage 2.2), with limits | `src/core/security/pathGuard.ts:93`, `:102`, `:202`, `:216`; `src/mesh/tools/meshTool.ts:124-149`, `:525`, `:669`, `:694`, `:701-705`; `src/mesh/peerText.ts:23`, `:87`, `:92`; `src/core/tools/projectIndex/projectIndexTool.ts:114-119`; `src/core/tools/createStructure.ts:188-191`, `:201`; `src/core/orchestrator/groundingGate.ts:66-72` | `tests/sec-mesh.test.mjs`, `tests/sec-write-paths.test.mjs` |
-| SEC-8 | MED | A `.env` in the working directory redirected outgoing requests | FIXED (stage 2.6) | `src/core/utils/loadEnv.ts:13-15`, `:22-27`; `src/index.ts:5` | `tests/sec-env.test.mjs` |
+| SEC-5 | MED | The Cursor activity guess beat `M7_PROJECT_PATH` | FIXED | `src/core/utils/projectPath.ts:8-22` (order), `:250-252`, `:286-292` (`selectProjectSource`), `:485-513` (`ensureProjectPathResolved`), `:614-617` (diagnostics) | `tests/sec-project-path.test.mjs` |
+| SEC-6 | MED | Visualizer on all interfaces, no auth, `CORS *` | FIXED; no token, see limits | `src/visualizer/visualizer-server.ts:36`, `:44`, `:56`, `:161`, `:177`, `:224-235`, `:767`; `src/core/tools/v3/visualizer-tool.ts:168-176` | `tests/sec-visualizer.test.mjs` |
+| SEC-7 | MED | Mesh writes peer files and injects peer messages; Hive put raw peer text into its task | FIXED, with limits | `src/core/security/pathGuard.ts:45-58` (name lists), `:86` (`foldUnicode`), `:138`, `:147` (`pushRefusal`, `pullRefusal`), `:281` (`guardPath`); `src/mesh/tools/meshTool.ts:618`, `:643-656`; `src/mesh/peerText.ts:24`, `:43`, `:66`, `:137`; `src/hive/tools/hiveCoordinator.ts:157-171`; `src/core/tools/projectIndex/projectIndexTool.ts:114-119`; `src/core/tools/createStructure.ts:188-201`; `src/core/orchestrator/groundingGate.ts:66-72` | `tests/sec-mesh.test.mjs`, `tests/sec-hive.test.mjs`, `tests/sec-write-paths.test.mjs` |
+| SEC-8 | MED | A `.env` in the working directory redirected outgoing requests | FIXED | `src/core/utils/loadEnv.ts:13-15`, `:22-27`; `src/index.ts:5` | `tests/sec-env.test.mjs` |
 | SEC-9 | MED | Hive sends `temperature` to Opus models, said to be rejected | CHANGED; the rejection is **unverified** | `src/hive/api/anthropicParams.ts:15`, `:24`; call sites `src/hive/intelligence/hiveArchitect.ts:76`, `:231`, `src/hive/orchestrator/dynamicOrchestrator.ts:437`, `:524`, `src/hive/api/apiManager.ts:408`, `src/hive/planner/plannerAgent.ts:72`, `src/hive/debate/debateEngine.ts:505` | `tests/sec-anthropic-temperature.test.mjs` |
-| SEC-10 | LOW | Key text in logs; the installer replaced `~/.cursor/mcp.json` and wrote keys into it | FIXED (stage 2.8) | logs: `src/index.ts:241-242` and `src/hive/tools/hiveCoordinator.ts:198-199` print `set` / `present`; installer: see "The installer" above, `scripts/merge-cursor-config.mjs:44-65`, `install.sh:180-227`, `:268-281` | `tests/sec-low.test.mjs` (merge script only) |
-| SEC-11 | LOW | Hive has no global spend limit and no cancel | OPEN, LOW; no fix in this branch | a cap per debate only: `src/hive/debate/debateEngine.ts:78-80`, `:97-99`; the Hive tool starts the run with no budget and no abort: `src/hive/tools/hiveCoordinator.ts:215`, `:220` | none |
+| SEC-10 | LOW | Key text in logs; the installer replaced `~/.cursor/mcp.json` and wrote keys into it | FIXED | logs: `src/index.ts:242-244` and `src/hive/tools/hiveCoordinator.ts:204-205` print `set` / `present`; installer: see "The installer" above, `scripts/merge-cursor-config.mjs:38-62`, `install.sh:180-227`, `:268-281` | `tests/sec-low.test.mjs` (merge script only) |
+| SEC-11 | LOW | Hive has no global spend limit and no cancel | OPEN, LOW; no fix in this branch | a cap per debate only: `src/hive/debate/debateEngine.ts:78-80`, `:97-99`; the Hive tool starts the run with no budget and no abort: `src/hive/tools/hiveCoordinator.ts:216-224` | none |
 
 ### Other spots
 
 | ID | Sev | Risk | Status | Where | Test |
 |---|---|---|---|---|---|
-| SEC-12 | LOW | Relay listened on every interface; bearer compared with `===` | FIXED (stage 2.8) | `src/mesh/relay/server.ts:24`, `:61-76`, `:263-264` | `tests/sec-low.test.mjs` (the compare is a static check) |
-| SEC-13 | LOW | Relay answers with `Access-Control-Allow-Origin: *` | OPEN, LOW; found in stage 2.8 | `src/mesh/relay/server.ts:88-90` | none |
-| SEC-14 | MED | `project_index` `output_path` written to any path | FIXED (stage 2.2): the tool contains the path; the generator still writes where it is told | `src/core/tools/projectIndex/projectIndexTool.ts:114-119`; `src/core/tools/projectIndex/indexGenerator.ts:70-71` | `tests/sec-write-paths.test.mjs` |
-| SEC-15 | MED | A `path:` premise in the grounding gate was checked by string, not by real path | FIXED (stage 2.2) | `src/core/orchestrator/groundingGate.ts:66-72` | `tests/sec-write-paths.test.mjs` |
-| SEC-16 | LOW | An explicit `project_path` is accepted if the directory exists, and it sticks for the session | OPEN, by design | `src/core/utils/projectPath.ts:64-74`, `:390-394` | none |
+| SEC-12 | LOW | Relay listened on every interface; bearer compared with `===` | FIXED | `src/mesh/relay/server.ts:24`, `:61-76`, `:263-264` | `tests/sec-low.test.mjs` (the compare is a static check) |
+| SEC-13 | LOW | Relay answers with `Access-Control-Allow-Origin: *` | OPEN, LOW; no fix in this branch | `src/mesh/relay/server.ts:88-90` | none |
+| SEC-14 | MED | `project_index` `output_path` written to any path | FIXED: the tool contains the path; the generator still writes where it is told | `src/core/tools/projectIndex/projectIndexTool.ts:114-119`; `src/core/tools/projectIndex/indexGenerator.ts:70-71` | `tests/sec-write-paths.test.mjs` |
+| SEC-15 | MED | A `path:` premise in the grounding gate was checked by string, not by real path | FIXED | `src/core/orchestrator/groundingGate.ts:66-72` | `tests/sec-write-paths.test.mjs` |
+| SEC-16 | LOW | An explicit `project_path` is accepted if the directory exists, and it sticks for the session | OPEN, by design | `src/core/utils/projectPath.ts:69-79`, `:408-413` | none |
 | SEC-17 | LOW | `logger.ts` redacts nothing; `sanitizer.ts` redacts only before a telemetry upload | OPEN, LOW; no fix in this branch. The logger writes only when `M7_DEBUG=true` | `src/core/utils/logger.ts:30`, `:48`, `:56`; `src/telemetry/sanitizer.ts:88`; used at `src/telemetry/gitCapture.ts:136` | none |
-| SEC-18 | LOW | Debug log held the first 50 characters of the task text | FIXED (stage 2.3): the log holds the length only | `src/core/intelligence/intentClassifier.ts:307` | `tests/sec-classifier.test.mjs` |
-| SEC-19 | ? | Not traced: the `path` input of `style_guardian`, `hub_path` of the knowledge hub config, `trackChange` in the scope guard. `routeToReferenceFile` was traced: it returns fixed file names | OPEN, unknown | `src/core/tools/v3/style-guardian-tool.ts:29`; `src/core/tools/knowledgeHub/types.ts:356`; `src/core/guards/scopeGuard.ts:104`; `src/core/tools/unified/memoryTool.ts:276-302` | none |
-| SEC-20 | MED | `knowledge_hub` `init` and `migrate` move your `INDEX.md` and similar root files into the hub; `rename` replaces an existing target | OPEN; runs only on an explicit hub action, not from `analyze_task` or `init_project`; a backup of the files goes to `.m7/backups/knowledge-hub/` first | `src/core/tools/knowledgeHub/core/MigrationManager.ts:23`, `:77-81`, `:132`; `src/core/tools/knowledgeHub/utils/fileUtils.ts:132`; `src/core/tools/knowledgeHub/core/KnowledgeHub.ts:131-136`; `src/core/tools/knowledgeHub/knowledgeHubTool.ts:135` (action `init`), `:202` (action `migrate`) | none |
+| SEC-18 | LOW | Debug log held the first 50 characters of the task text | FIXED: the log holds the length only | `src/core/intelligence/intentClassifier.ts:307` | `tests/sec-classifier.test.mjs` |
+| SEC-19 | ? | Path inputs that were not traced at the base commit: the `path` input of `style_guardian`, `hub_path` and the document paths of the knowledge hub config, `trackChange` in the scope guard. `routeToReferenceFile` was traced: it returns fixed file names | Knowledge hub: FIXED (see SEC-20 and "SEC-19 and SEC-20 details"). `hub_path` is checked by the schema but never used to build a path, and the document paths are now kept inside the hub. `style_guardian` `path` and `trackChange`: OPEN, still not traced | `src/core/tools/knowledgeHub/types.ts:363`; `src/core/tools/knowledgeHub/utils/configUtils.ts:145`, `:165`; `src/core/tools/knowledgeHub/core/DocumentManager.ts:216-229`; not traced: `src/core/tools/v3/style-guardian-tool.ts:29`, `src/core/guards/scopeGuard.ts:104`; `src/core/tools/unified/memoryTool.ts:276-302` | `tests/sec-knowledge-hub.test.mjs` (knowledge hub only) |
+| SEC-20 | MED | `knowledge_hub` `init` moved your `INDEX.md` and similar root files into the hub, and the move replaced a file that was already there | FIXED: `init` moves nothing. `migrate`, the only action that moves root files, keeps a file the hub already has and lists it. The hub runs only on an explicit hub action, not from `analyze_task` or `init_project`. SEC-31 is still open | `src/core/tools/knowledgeHub/core/KnowledgeHub.ts:130-131`, `:174`; `src/core/tools/knowledgeHub/core/MigrationManager.ts:40`, `:80-167`; `src/core/tools/knowledgeHub/knowledgeHubTool.ts:201`, `:217` | `tests/sec-knowledge-hub.test.mjs` |
 | SEC-21 | MED | The systems (memory, journal, schema, orchestrator, scope guard) and some tools (task graph, task transfer, scope, TSI) were built on the start-up path, usually the install directory. They stayed there when `M7_PROJECT_PATH` or MCP Roots named another project, so a schema update, a contract, the journal, the task graph or the TSI data could be written into the wrong project. A Roots change during a session was not followed either: the handler never registered with the installed SDK | FIXED, with one accepted limit; see "SEC-21 details" | `src/index.ts:202-224` (change callback), `:255-270` (TSI built on first use), `:295` and `:607` (tools read the systems when they run), `:807` (wait in `registerTool`); `src/core/utils/projectPath.ts:336`, `:365` (caching tells subscribers), `:453-479` (Roots change handler), `:631-632` (diagnostics); `src/tsi/tsiSystem.ts:370`, `src/tsi/index.ts:90`; singleton resets at `src/core/task-graph/taskGraphManager.ts:458`, `src/core/task-transfer/transferManager.ts:341`, `src/core/compliance/complianceTracker.ts:320`, `src/core/utils/manifest.ts:357`, `src/core/devops/devopsRegistry.ts:583`, `src/knowledge-graph/index.ts:414` | `tests/sec-stale-root.test.mjs` |
 | SEC-22 | LOW | `validatePath` in the knowledge hub uses a bare prefix check | OPEN, latent: nothing in `src` or `tests` calls it | `src/core/tools/knowledgeHub/utils/fileUtils.ts:166-175` | none |
 | SEC-23 | LOW | `create_structure`: a `task_id` such as `../../x` stays inside the project but can put templates outside `docs/` | OPEN, LOW | `src/core/tools/createStructure.ts:73`, `:218-220` (name), `:188-191` (containment) | `tests/sec-write-paths.test.mjs` (containment only) |
-| SEC-24 | LOW | `push-file` can send control paths such as `.git/config` (only `pull-file` refuses them) | OPEN, by design | `src/core/security/pathGuard.ts:93`, `:102` | none |
-| SEC-25 | LOW | Mesh error text is flattened to one line but not fenced | OPEN, LOW | `src/mesh/tools/meshTool.ts:831` | none |
+| SEC-24 | LOW | `push-file` can send control paths such as `.git/config` (only `pull-file` refuses them) | OPEN, by design | `src/core/security/pathGuard.ts:138`, `:147` | none |
+| SEC-25 | LOW | Mesh error text is flattened to one line but not fenced | OPEN, LOW | `src/mesh/tools/meshTool.ts:780` | none |
+| SEC-26 | MED | `.m7` as a symlink: the journal, the memory files and the cross-session files are written through it, outside the project. `init_project` refuses it; the journal and the memory do not check | OPEN. Seen in a probe: memory, cross-session and journal files landed in the link target. Not fixed here | `src/journal/journalSystem.ts:71`, `:167-175`, `:457`; `src/memory/memorySystem.ts:68`; `src/memory/auto/unified-memory-core.ts:335`; `src/cross-session/knowledge-accumulator.ts:40`; refused only by `src/core/tools/initProject.ts:866` | none |
+| SEC-27 | LOW | `ConsoleMonitor` keeps the journal of its first call. After the project changes (SEC-21), console errors go to the journal of the first project | OPEN, LOW. Not fixed here | `src/core/tools/critical/console.ts:48-50`, `:66-71`, `:333` | none |
+| SEC-28 | LOW | `GraphVisualizerService` keeps the knowledge graph it took when it was built. After the project changes, it keeps the graph of the first project | OPEN, LOW. Not fixed here | `src/visualizer/graph-visualizer-service.ts:33`, `:461-466`; `src/visualizer/visualizer-server.ts:77`; the graph itself is reset at `src/knowledge-graph/index.ts:414` | none |
+| SEC-29 | LOW | Model discovery at server start sends a model list request to OpenAI and a 1-token `Hi` message to Anthropic for each of five model names, with your keys. There is no switch | OPEN, LOW. Documented in "What leaves the machine". Not fixed here | `src/index.ts:230-249`; `src/hive/api/apiManager.ts:130`; `src/hive/api/modelDiscovery.ts:100`, `:137-151` | none |
+| SEC-30 | LOW | Hive sends up to three chunks of project memory (300 characters each) with the task to OpenAI and Anthropic. The chunk text is not marked or cleaned, and no switch turns this off | OPEN, LOW. Documented in "What leaves the machine". Not fixed here | `src/hive/tools/hiveCoordinator.ts:135`, `:180-192` | none |
+| SEC-31 | MED | `knowledge_hub` writes a document through a temporary file named `<document>.tmp`; a symlink with that name is written through, outside the project. `history` and `diff` use `document_id` as a folder name without a check, so they can read version files from another folder | OPEN. Seen in a probe on this tree: `init` wrote hub content into a file outside the project through a `.tmp` link, and `history` listed a version file from a folder outside. Not fixed here | `src/core/tools/knowledgeHub/utils/fileUtils.ts:14-25`; `src/core/tools/knowledgeHub/core/VersionManager.ts:104-108`; `src/core/tools/knowledgeHub/utils/configUtils.ts:175-183` | none |
 
 ### Details and limits per item
 
-- **SEC-2 exceptions.** (a) `.gitignore` gets one `.m7/` line added; the file is
-  read, extended and written back
-  (`src/core/tools/initProject.ts:899-911`), and the lines you had stay. (b) `CYCLE_REGISTRY.md` is rewritten with the new row when you
-  register a cycle summary, with or without the M7 marker
-  (`src/core/orchestrator/cycleOrchestrator.ts:1582`, `:1632`). Your content is
-  kept, and the only caller is the `mcp_m7_cycle` summary action
-  (`src/core/tools/cycleTool.ts:55`). (c) `mesh pull-file` with `overwrite=true`
-  replaces a file (SEC-7). (d) SEC-20.
-- **SEC-2 marker rule.** M7 changes an existing file later only if it carries
-  `<!-- m7-managed -->` in its first 4096 bytes. A project that M7 set up
-  before this change has no marker, so the memory bridge no longer appends to
-  its `CODING_STANDARDS.md`, `CYCLE_REGISTRY.md` or `MASTER_REFERENCE.md`, and
-  the answer says "not synced". This is accepted. Adding the marker line by hand
+- **SEC-2 exceptions.** These files can change without the M7 marker:
+  (a) `.gitignore` gets one `.m7/` line when it has none. M7 reads the file,
+  adds the line and writes it back, and the lines you had stay
+  (`src/core/tools/initProject.ts:903-930`). A `.gitignore` that is a symlink is
+  neither read nor written: `init_project` lists it as skipped. (b)
+  `CYCLE_REGISTRY.md` is rewritten with the new row when you register a cycle
+  summary, with or without the marker, and it is created when missing
+  (`src/core/orchestrator/cycleOrchestrator.ts:1586-1645`). Your content is
+  kept. A registry that is a symlink, or whose location leads out of the project, is not
+  followed: the `mcp_m7_cycle` call fails with an error. The only caller is the
+  summary action (`src/core/tools/cycleTool.ts:55`). (c) `PROJECT_SCHEMA.yaml` is
+  rewritten whole by `mcp_m7_schema` (`src/index.ts:354-361`) and by
+  `mcp_m7_contracts` (`src/core/tools/critical/contracts.ts:376`), through
+  `src/schema/schemaSystem.ts:132`. `init_project` does not touch an existing
+  one. (d) `mcp_m7_project_index` with `force`, and its `update` action, rewrite
+  the index file, `PROJECT_INDEX.md` or your `output_path`
+  (`src/core/tools/projectIndex/indexGenerator.ts:71`). (e) `mesh pull-file` with
+  `overwrite=true` replaces a file (SEC-7). (f) The knowledge hub rewrites its own
+  documents under `knowledge-hub/` on `update`, `sync` and `rollback`, after it saved
+  the old version (SEC-20).
+- **SEC-2 empty rule.** `mcp_m7_analyze_task` sets a project up on its own only
+  in an empty directory. A directory is empty when it holds nothing but `.git`,
+  `.gitignore`, `.DS_Store` and `.m7`. Every other name, hidden or not
+  (`.github`, `.vscode`, `.env`, `.cursorrules`), makes it a project, and so
+  does a directory that cannot be read
+  (`src/core/tools/initProject.ts:221-244`). In a project that has files and
+  neither a `memory-bank` nor a `.cursorrules`, `analyze_task` creates none of
+  the setup files and adds a note that points to `mcp_m7_init_project`
+  (`src/core/tools/analyzeTask.ts:265-267`). `init_project` refuses a directory
+  that is not empty unless you pass `force`, and even with `force` it creates
+  only what is missing (`src/core/tools/initProject.ts:126-128`).
+- **SEC-2 task folder (`create_session`).** `mcp_m7_analyze_task` has the
+  parameter `create_session`, default `true`. With it, `analyze_task` creates a
+  task folder of seven template files under `docs/debug/<folder>/` or
+  `docs/features/<folder>/` (`docs/features` for the light route). This happens in any project, also one that has
+  files (`src/core/tools/analyzeTask.ts:495`, `:535`;
+  `src/core/tools/createStructure.ts:176-201`). It never replaces a file there:
+  each file is created with `wx`, a file that exists is kept and the answer lists
+  it as kept, and the folder must lie inside the project, also through symlinks (a
+  `docs` that links out is refused). The new files show up in `git status`.
+  `create_session: false` turns this off. `mcp_m7_create_structure` follows the
+  same rules.
+- **SEC-2 marker rule.** M7 appends to, or rewrites, an existing file of the
+  memory bridge and `memory-bank/activeContext.md` only if the file carries
+  `<!-- m7-managed -->` in its first 4096 bytes
+  (`src/core/utils/safeWrite.ts:102`, `:137`, `:147`;
+  `src/core/tools/analyzeTask.ts:899-923`). A project that M7 set up before this
+  change has no marker, so the memory bridge no longer appends to its
+  `CODING_STANDARDS.md`, `CYCLE_REGISTRY.md` or `MASTER_REFERENCE.md`, and the
+  answer says "not synced". This is accepted. Adding the marker line by hand
   turns the bridge on again for that file. Be careful with
-  `memory-bank/activeContext.md`: with the marker, M7 replaces the whole file
-  on each `analyze_task`.
+  `memory-bank/activeContext.md`: with the marker, M7 replaces the whole file on
+  each `analyze_task`. A skipped `activeContext.md` is only written to the debug
+  log, not shown in the answer. The files in "SEC-2 exceptions" are not covered
+  by the marker rule. The bridge resolves each reference file with
+  `resolveContainedEntry` before it writes (`src/core/tools/unified/memoryTool.ts:310`,
+  `:316`). All three targets sit in the project root, where the open with
+  `O_NOFOLLOW` already refused a symlink, so no test failed without this step: it
+  is defence in depth for a target in a subfolder.
 - **SEC-3 requests that carry no task text.** See "What leaves the machine".
   Model discovery runs when the server starts and uses both keys: one model
   list request to OpenAI (`src/hive/api/modelDiscovery.ts:100`) and one 1-token
   `Hi` message to Anthropic for each of five model names
-  (`src/hive/api/modelDiscovery.ts:137-151`). `src/index.ts:244` creates the
+  (`src/hive/api/modelDiscovery.ts:137-151`). `src/index.ts:246` creates the
   API manager, and its constructor starts the discovery
   (`src/hive/api/apiManager.ts:130`). The result is kept for 24 hours
   (`src/hive/api/modelDiscovery.ts:92`). The server refuses to start without
-  both keys (`src/index.ts:234-237`). The model lists for the time-and-models
+  both keys (`src/index.ts:235-240`). The model lists for the time-and-models
   header are fetched at the first `analyze_task` call
-  (`src/core/tools/analyzeTask.ts:221-222`, `src/context/context-provider.ts:143`,
+  (`src/core/tools/analyzeTask.ts:222-223`, `src/context/context-provider.ts:143`,
   `:177`) and kept for 24 hours (`src/context/types.ts:79`). A probe against a
-  stub server in stage 2.3 saw 6 requests at start, 2 more at the first
+  stub server saw 6 requests at start, 2 more at the first
   `analyze_task` and none at the second. No live call was made.
 - **SEC-6 limit.** The visualizer has no token. Another user account on the
   same machine can connect to `127.0.0.1` while it runs.
 - **SEC-7 limits.** Marking peer text as untrusted lowers the risk of prompt
-  injection. It does not prevent it. The check that a path stays inside the
-  project and the write that follows are two steps: a symlink swapped in
-  between is not caught for `mesh pull-file overwrite=true`
-  (`src/mesh/tools/meshTool.ts:701-702` uses a plain write; the default path
-  uses `wx`). `mesh push-file` refuses
-  secret files (`.env`, `.npmrc`, `*.pem`, `id_rsa` and so on), and `pull-file`
-  refuses those and the control paths `.git`, `.cursor`, `.cursorrules`,
-  `.vscode`, `.claude`, `.m7`, `.husky`, `.github`.
+  injection. It does not prevent it. Every value from another instance is cleaned
+  of control characters (line breaks, zero-width and bidi marks, tag characters),
+  broken apart at any run of three `<` or `>`, and put between `<<<` and `>>>`.
+  The answer starts with a one-line untrusted-data header
+  (`src/mesh/peerText.ts:24`, `:43`, `:66`, `:137`). The mesh tool and Hive both
+  use it (`src/hive/tools/hiveCoordinator.ts:157-171`). The check that a path
+  stays inside the project and the write that follows are two steps: a symlink
+  swapped in between is not caught for `mesh pull-file overwrite=true`
+  (`src/mesh/tools/meshTool.ts:650-651` uses a plain write; the default path
+  uses `wx`). `mesh push-file` refuses secret files (`.env`, `.env.*`, `*.env`,
+  `.envrc`, `.npmrc`, `.netrc`, `.pypirc`, `.pgpass`, `.git-credentials`,
+  `id_rsa` and its kin, `credentials`, `.aws`, `.ssh`, `.docker`, `.kube`,
+  `.gnupg`, and `*.key`, `*.pem`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`).
+  `pull-file` refuses those and the control paths `.git`, `.cursor`,
+  `.cursorrules`, `.vscode`, `.claude`, `.m7`, `.husky`, `.github`, `.mcp.json`
+  (`src/core/security/pathGuard.ts:45-58`). Each path segment is folded before the
+  compare: Unicode NFKC, upper then lower case, ignorable characters removed,
+  trailing dots and spaces cut (`src/core/security/pathGuard.ts:86-109`). A
+  look-alike spelling, such as a long s in place of `s` or the Kelvin sign in
+  place of `k`, meets the same entry. The fold uses the tables of the platform
+  (ICU in Node), so it is not part of the plain-code rules.
 - **SEC-8 limit.** The `.env` in the install directory and the process
   environment stay trusted. Either can still set `OPENAI_BASE_URL`,
   `ANTHROPIC_BASE_URL`, `CHROMA_URL`, `M7_MESH_RELAY` or
@@ -276,6 +349,29 @@ function name if a line is off.
   source has no `AbortController` under `src/hive`. `CANCELLED` in
   `src/hive/orchestrator/plannerOrchestrator.ts:241` marks a sub-task that
   threw an error. It is not a user cancel.
+- **SEC-19 and SEC-20 details (knowledge hub).** `hub_path` in `hub-config.yaml`
+  is checked by the schema but never used to build a path
+  (`src/core/tools/knowledgeHub/types.ts:363`; `getHubPath` returns the fixed
+  name `knowledge-hub`, `src/core/tools/knowledgeHub/utils/configUtils.ts:145`).
+  The `path` of each entry in `documents` is now kept inside the hub:
+  `hubDocumentPath` refuses a path that climbs out of the hub with `..`, names
+  the hub itself, or holds a NUL byte
+  (`src/core/tools/knowledgeHub/utils/configUtils.ts:165`), and `DocumentManager`
+  resolves the folder of the document with `resolveContainedEntry`, so a hub
+  folder that is a symlink leaving the project is refused
+  (`src/core/tools/knowledgeHub/core/DocumentManager.ts:216-229`). A refused
+  path throws `INVALID_PATH`; `update` and `sync` report the failure and write
+  nothing. `init` no longer moves your `INDEX.md` or other root documents into
+  the hub (`src/core/tools/knowledgeHub/core/KnowledgeHub.ts:130-131`).
+  `migrate` is the only action that moves them. It keeps a file that the hub
+  already has: the root file stays, the hub file is not replaced, and the answer
+  lists the file under `skipped_files`
+  (`src/core/tools/knowledgeHub/core/MigrationManager.ts:40`, `:80-167`). A
+  target whose folder leaves the project through a symlink is refused and
+  nothing moves. A backup of the files that do move goes to
+  `.m7/backups/knowledge-hub/`. **Limits:** the check and the write are two
+  steps, as for SEC-7. The `config` and `versions` folders of the hub and the
+  backup folder are not checked for symlinks, and SEC-31 is open.
 - **SEC-21 details.** While the Roots step is open, every tool call first waits
   for the workspace (`src/index.ts:807`). After the step is finished the wait
   costs nothing. The systems and the singletons that hold project state follow
@@ -291,14 +387,19 @@ function name if a line is off.
   `ensureProjectPathResolved` returns an uncached guess with no notice. The
   systems then stay on the working directory until the attempts run out, after
   at most 5 attempts. MCP resources (`m7://...`) only read, and may read state of
-  the working directory in the same window.
+  the working directory in the same window. **Leftovers:** `ConsoleMonitor` keeps
+  its first journal (SEC-27) and `GraphVisualizerService` keeps its first graph
+  (SEC-28). The cycle orchestrator fixes `cyclesDir` at start-up
+  (`src/core/orchestrator/cycleOrchestrator.ts:85`); it is only one read-only
+  candidate in the lookup of a stored cycle state
+  (`src/core/orchestrator/cycleOrchestrator.ts:1362`, `:1548`).
 
 ## Dependencies: `npm audit`
 
 `npm audit` lists **6 entries** (1 low, 3 moderate, 2 high, 0 critical). This is
 a point-in-time result from the advisory database. Run `npm audit` again, the
 answer changes as advisories are added. The advisory floors that could be
-raised without a major version change were raised in stage 1
+raised without a major version change were raised
 (`@modelcontextprotocol/sdk`, `ws`, `js-yaml`, `yaml`). The six entries remain
 because their fixes need a major version change or a downgrade. No `--force`
 was used. Whether each is reachable was decided **by reading the code**. Nothing
@@ -306,10 +407,10 @@ was run to try to trigger them.
 
 | Package (installed) | Sev | Advisory | Used in `src`? | Why it is not fixed, and reachability |
 |---|---|---|---|---|
-| `zod` 3.25.76 | high | GHSA-mrhx-c7xc-m3w5: memory exhaustion while validating oversized constrained collections (`<4.6.6`) | Yes: tool input schemas, 39 files import it | There is no 3.x fix. The fix is zod 4, a major change. The relay imports no zod (`src/mesh/relay`). Zod parses the arguments of a tool call, and those come from your local MCP client over stdio (for example `src/mesh/tools/meshTool.ts:732`). Peer data from the relay is not parsed with zod. |
+| `zod` 3.25.76 | high | GHSA-mrhx-c7xc-m3w5: memory exhaustion while validating oversized constrained collections (`<4.6.6`) | Yes: tool input schemas, 39 files import it | There is no 3.x fix. The fix is zod 4, a major change. The relay imports no zod (`src/mesh/relay`). Zod parses the arguments of a tool call, and those come from your local MCP client over stdio (for example `src/mesh/tools/meshTool.ts:681`). Peer data from the relay is not parsed with zod. |
 | `openai` 5.23.2 | high | `npm audit` reports it only "via zod" (range `4.55.0 - 5.23.2`) | Yes (`src/core/intelligence/intentClassifier.ts:278`, `src/hive/api/apiManager.ts:115`, others) | The fix is openai 7.x, a major change. The advisory is the zod chain above, not a flaw in the code of `openai` itself. |
 | `diff` 7.0.0 | low | GHSA-73rr-hh4g-fpgx: denial of service in `parsePatch` and `applyPatch` (`>=6.0.0 <8.0.3`) | `src/core/tools/critical/impact.ts:7` | `src` imports `diffChars`, `diffLines` and `createTwoFilesPatch` only (`src/core/tools/critical/impact.ts:304`, `:318`, `:438`). It never calls `parsePatch` or `applyPatch`. The fix is diff 9, a major change. |
-| `minimatch` 10.2.6 | moderate | GHSA-g3hv-75wg-m249: denial of service through globparts amplification (`<11.0.1`) | Not imported by M7 (`minimatch` is in no file under `src` and not in `package.json`). It comes in through `@ts-morph/common`. | No pattern reaches it. The only M7 code that uses ts-morph is `src/core/tools/knowledgeHub/scanners/TypeScanner.ts`. It adds files one by one with a concrete path (`src/core/tools/knowledgeHub/scanners/TypeScanner.ts:76`, `addSourceFileAtPath`) and calls `project.getSourceFiles()` with no pattern (`src/core/tools/knowledgeHub/scanners/TypeScanner.ts:85`). In the installed `@ts-morph/common` 0.28.1, `minimatch` is called in one place, `matchGlobs` (`dist/ts-morph-common.js:1696`). In the installed `ts-morph` 27.0.2, `matchGlobs` is called only inside `getSourceFiles(globPatterns)` (`dist/ts-morph.js:18881`, `:20908`), and only when a pattern is passed. This is a reading of that code, not a run. How ts-morph reads `include` and `exclude` of the `tsconfig.json` of the scanned project was **not** traced. |
+| `minimatch` 10.2.6 | moderate | GHSA-g3hv-75wg-m249: denial of service through globparts amplification (`<11.0.1`) | Not imported by M7 (`minimatch` is in no file under `src` and not in `package.json`). It comes in through `@ts-morph/common`. | No pattern reaches it. The only M7 code that uses ts-morph is `src/core/tools/knowledgeHub/scanners/TypeScanner.ts`. It adds files one by one with a concrete path (`src/core/tools/knowledgeHub/scanners/TypeScanner.ts:76`, `addSourceFileAtPath`) and calls `project.getSourceFiles()` with no pattern (`src/core/tools/knowledgeHub/scanners/TypeScanner.ts:85`). In the installed `@ts-morph/common` 0.28.1, `minimatch` is reached only through the wrapper `getPathMatchesPattern` (`dist/ts-morph-common.js:1175`, `:1263`), whose only caller is `matchGlobs` (`dist/ts-morph-common.js:1696`). In the installed `ts-morph` 27.0.2, `matchGlobs` is called only inside `getSourceFiles(globPatterns)` (`dist/ts-morph.js:18881`, `:20908`), and only when a pattern is passed. This is a reading of that code, not a run. How ts-morph reads `include` and `exclude` of the `tsconfig.json` of the scanned project was **not** traced. |
 | `@ts-morph/common` 0.28.1 | moderate | via `minimatch` | via `ts-morph` | The audit offers ts-morph 10.0.1, a downgrade across many majors. Not applied. |
 | `ts-morph` 27.0.2 | moderate | via `@ts-morph/common` | `src/core/tools/knowledgeHub/scanners/TypeScanner.ts:32` (lazy `import('ts-morph')`) | Same as above. |
 
@@ -317,7 +418,7 @@ was run to try to trigger them.
 
 `gitleaks detect --source <repo> --no-banner` scans the git history of this
 clone. Before `.gitleaksignore` it reported 2 findings, both in
-`src/tsi/patterns/security/auth.yaml`, lines 30 and 32. I read the file. Both
+`src/tsi/patterns/security/auth.yaml`, lines 30 and 32. Both
 lines sit in a `bad:` code sample of a pattern catalogue (it shows insecure
 code on purpose; the `good:` sample follows at line 33). The values are plain
 placeholders, and they are not real credentials. They were not tried against
@@ -327,7 +428,7 @@ tied to commit `72a7640700dbd7cebc0d57eabe8253989af084ba` and to those line
 numbers. If the file is edited, the lines move and the findings come back.
 
 After the ignore file, the scan of the history finds no leaks. A second scan
-with `--no-git` over the files changed in the stage also finds none. A clean
+with `--no-git` over the changed files also finds none. A clean
 scan shows that the rules of gitleaks found nothing. It does not show that no
 secret exists.
 
@@ -346,8 +447,17 @@ secret exists.
 - The logger redacts nothing and is off unless `M7_DEBUG=true` (SEC-17).
 - Opus models run at the API default temperature (SEC-9).
 - One test in `tests/deepScanAcceptance.test.mjs` (the one named "existing
-  file without fog entry") failed once in a full run and then passed. The
-  cause is unknown. It is not known to be a security issue.
+  file without fog entry") failed once in a full run and then passed. It is not
+  a security issue. The likely cause is a timing gap in the grounding gate: a
+  file premise was stamped with the time and judged a moment later, and a clock
+  tick between the two could age a file that exists, so it showed as stale and
+  drew a warning. That gap was real: a test with a clock that moves on every read
+  failed before the change and passes after it
+  (`tests/groundingGate.test.mjs`). The gate now reads the clock once per premise
+  and uses it for both steps
+  (`src/core/orchestrator/groundingGate.ts:203`, `:222`, `:282-286`). The
+  original failure was not reproduced in the acceptance test itself, so that
+  link is an inference.
 
 ## What is not verified
 
@@ -360,7 +470,7 @@ secret exists.
   link-local address. It was never run behind TLS, a proxy, a container or a
   cloud host, and never with two machines.
 - **Windows was not tested.** The path rules in `pathGuard.ts` have a Windows
-  branch (`isInsideWith`, `src/core/security/pathGuard.ts:116`) that runs only
+  branch (`isInsideWith`, `src/core/security/pathGuard.ts:161`) that runs only
   as a pure function on this machine. Symlink behaviour, `chmod 600`, case rules and `install.sh` (bash)
   were not tried on Windows. Linux was not run either. All runs were on macOS
   with Node 24.
@@ -373,6 +483,14 @@ secret exists.
   was queried.
 - **`install.sh` was not run.** Only the merge script was tested (see above).
 - **Token compare timing was not measured** (SEC-12).
+- **Open items SEC-26 to SEC-31.** SEC-26 and SEC-31 were seen in a probe on
+  macOS (a symlinked `.m7`; a `.tmp` link and a `history` call with a `..`
+  `document_id`). No test in the repository covers them. SEC-27 and SEC-28 are
+  read from the code, not run. SEC-29 and SEC-30 are read from the code and the
+  documentation, not run against a live API.
+- **The knowledge hub fix** was tested with symlinks and `hub-config.yaml` edits
+  on macOS only. The hub's `config`, `versions` and backup folders were not
+  checked for symlinks (SEC-31).
 - **Reachability of the `npm audit` entries** rests on reading the code
   (section above).
 - **Tool surface.** Tool names and input schemas were compared with the 3.22.2

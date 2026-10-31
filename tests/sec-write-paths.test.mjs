@@ -386,6 +386,85 @@ describe('the cycle summary does not write CYCLE_REGISTRY.md through a symlink',
 });
 
 // ---------------------------------------------------------------------------
+// memory bridge: appendIfManaged and updateIfManaged
+// ---------------------------------------------------------------------------
+
+// The bridge syncs a memory record into one reference file at the project root. The file
+// is changed only when it carries the M7 marker, and not when it is a symlink (the open
+// uses O_NOFOLLOW). The bridge also resolves the file with resolveContainedEntry, so a
+// parent directory that is a link could never lead outside. All three targets sit at
+// the project root today, so the only link that can exist is the file itself.
+
+describe('the memory bridge does not write through a symlinked reference file', () => {
+  const BRIDGES = [
+    {
+      name: 'store_at',
+      file: 'CYCLE_REGISTRY.md',
+      args: { action: 'store_at', level: 'L2', context_keys: ['decision'], content: 'Decision: keep the registry append-only because the audit needs the order.' },
+      synced: /Also synced to CYCLE_REGISTRY\.md/,
+      landed: text => text.includes('keep the registry append-only'),
+    },
+    {
+      name: 'store_pattern',
+      file: 'CODING_STANDARDS.md',
+      args: { action: 'store_pattern', pattern: { name: 'retry-with-backoff', description: 'Retry failed calls with backoff', tags: ['retry'] } },
+      synced: /Also synced to CODING_STANDARDS\.md/,
+      landed: text => text.includes('### retry-with-backoff'),
+    },
+    {
+      name: 'update_project',
+      file: 'MASTER_REFERENCE.md',
+      args: { action: 'update_project', project: { name: 'bridge-probe', description: 'bridge-probe description' } },
+      synced: /Also synced to MASTER_REFERENCE\.md/,
+      landed: text => text.includes('bridge-probe description'),
+    },
+  ];
+
+  for (const b of BRIDGES) {
+    it(`memory ${b.name} leaves a file outside the project alone when ${b.file} is a link to it`, T, async () => {
+      await withNested(async ({ proj, outside }) => {
+        const target = path.join(outside, 'reference.md');
+        const original = `${MARKER}\n${OUTSIDE_FILE_TEXT}`;
+        await writeFile(target, original);
+        await symlink(target, path.join(proj, b.file));
+
+        const res = await callTool(proj, 'mcp_m7_memory', b.args);
+        assert.ok(!res.isError, `memory failed:\n${res.text.slice(0, 400)}`);
+        assert.equal(await readFile(target, 'utf8'), original, `the bridge wrote through ${b.file} to a file outside the project`);
+        assert.ok((await lstat(path.join(proj, b.file))).isSymbolicLink(), `${b.file} was replaced by a regular file`);
+        assert.match(res.text, /not synced/i, 'the answer must say the entry was not synced');
+        assert.ok(!b.synced.test(res.text), 'the answer claims a sync that did not happen');
+      });
+    });
+
+    it(`memory ${b.name} creates nothing outside the project when ${b.file} is a dangling link`, T, async () => {
+      await withNested(async ({ proj, outside }) => {
+        const target = path.join(outside, 'not-yet.md');
+        await symlink(target, path.join(proj, b.file));
+
+        const res = await callTool(proj, 'mcp_m7_memory', b.args);
+        assert.ok(!res.isError, `memory failed:\n${res.text.slice(0, 400)}`);
+        assert.equal(existsSync(target), false, 'the bridge created a file outside the project through the link');
+        assert.match(res.text, /not synced/i);
+      });
+    });
+
+    it(`memory ${b.name} still syncs a managed ${b.file} when the project path itself is a symlink`, T, async () => {
+      await withNested(async ({ outer, proj }) => {
+        await writeFile(path.join(proj, b.file), `${MARKER}\n# Reference\n`);
+        const viaLink = path.join(outer, 'proj-link');
+        await symlink(proj, viaLink);
+
+        const res = await callTool(viaLink, 'mcp_m7_memory', b.args);
+        assert.ok(!res.isError, `memory failed:\n${res.text.slice(0, 400)}`);
+        assert.match(res.text, b.synced, `no sync reported:\n${res.text.slice(0, 600)}`);
+        assert.ok(b.landed(await readFile(path.join(proj, b.file), 'utf8')), 'the entry did not land in the real project');
+      });
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // grounding gate
 // ---------------------------------------------------------------------------
 

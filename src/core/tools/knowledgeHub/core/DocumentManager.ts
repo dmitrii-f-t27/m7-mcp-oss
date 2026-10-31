@@ -17,7 +17,8 @@ import {
   ensureDirectory,
   getFileStats
 } from '../utils/fileUtils.js';
-import { getDocumentPath, getHubPath } from '../utils/configUtils.js';
+import { getHubPath, hubDocumentPath } from '../utils/configUtils.js';
+import { resolveContainedEntry } from '../../../security/pathGuard.js';
 
 export class DocumentManager {
   constructor(private projectPath: string) {}
@@ -26,7 +27,7 @@ export class DocumentManager {
    * Load document by path
    */
   async load(documentPath: string): Promise<KnowledgeDocument> {
-    const fullPath = this.getFullPath(documentPath);
+    const fullPath = await this.resolveFullPath(documentPath);
     
     // Check if file exists
     if (!(await fileExists(fullPath))) {
@@ -82,7 +83,7 @@ export class DocumentManager {
     content: string,
     metadata?: Partial<DocumentMetadata>
   ): Promise<void> {
-    const fullPath = this.getFullPath(documentPath);
+    const fullPath = await this.resolveFullPath(documentPath);
     
     try {
       // Ensure parent directory exists
@@ -117,7 +118,7 @@ export class DocumentManager {
    * Check if document exists
    */
   async exists(documentPath: string): Promise<boolean> {
-    const fullPath = this.getFullPath(documentPath);
+    const fullPath = await this.resolveFullPath(documentPath);
     return await fileExists(fullPath);
   }
   
@@ -125,7 +126,7 @@ export class DocumentManager {
    * Delete document
    */
   async delete(documentPath: string): Promise<void> {
-    const fullPath = this.getFullPath(documentPath);
+    const fullPath = await this.resolveFullPath(documentPath);
     
     if (!(await fileExists(fullPath))) {
       throw new DocumentNotFoundError(documentPath);
@@ -207,8 +208,24 @@ export class DocumentManager {
   
   // ===== Private Helper Methods =====
   
-  private getFullPath(documentPath: string): string {
-    return getDocumentPath(this.projectPath, documentPath);
+  /**
+   * The real path of a document (SEC-19). The document must lie inside the hub, and the
+   * folder it sits in must not lead out of the project through a symlink. The file itself
+   * is not followed, so a link stays visible. Anything else throws INVALID_PATH.
+   */
+  private async resolveFullPath(documentPath: string): Promise<string> {
+    const inHub = hubDocumentPath(this.projectPath, documentPath);
+    const real = inHub === null
+      ? null
+      : await resolveContainedEntry(this.projectPath, path.relative(this.projectPath, inHub));
+    if (real === null) {
+      throw new KnowledgeHubError(
+        `Document path leaves the knowledge hub or the project: ${documentPath}`,
+        'INVALID_PATH',
+        { documentPath }
+      );
+    }
+    return real;
   }
   
   private getDocumentId(documentPath: string): string {

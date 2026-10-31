@@ -213,6 +213,11 @@ async function handleMigrate(hub: KnowledgeHub) {
             ? `\n📄 Migrated files:\n${result.migrated_files.map(f => 
                 `  • ${f.original_path} → ${f.new_path}`
               ).join('\n')}`
+            : null,
+          result.skipped_files && result.skipped_files.length > 0
+            ? `\n⏭️ Kept ${result.skipped_files.length} existing hub file(s); the root file was not moved:\n${result.skipped_files.map(f => 
+                `  • ${f.original_path} (the hub already has ${f.existing_target})`
+              ).join('\n')}`
             : null
         ].filter(Boolean))
       : `❌ Migration failed: ${result.message}`
