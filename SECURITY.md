@@ -71,3 +71,20 @@ current context (active file, modified files, task description).
 - **There is no token or password.** Any other user account on the same
   machine can connect to `127.0.0.1` while the visualizer runs and read what it
   serves. Do not start the visualizer on a shared multi-user machine.
+
+## The `.env` file
+
+The server reads API keys and settings from the process environment and from
+one `.env` file: the file in the M7 install directory (the parent of `dist/`).
+
+- **No `.env` from the working directory.** The MCP client chooses the working
+  directory of the server, and it can be a project folder you do not control.
+  A `.env` there is not read, so it cannot supply keys or settings such as
+  `M7_MESH_RELAY`, `M7_TELEMETRY_ENDPOINT`, `CHROMA_URL` or
+  `M7_ALLOW_REMOTE_CLASSIFICATION`.
+- **The process environment wins.** A variable that is already set (for
+  example in the `env` block of your MCP client config) is not replaced by the
+  file.
+- **What stops working:** a `.env` in some other working directory. Move the
+  keys to the `.env` in the install directory (`cp .env.example .env` in the
+  repository root) or to the `env` block of your MCP client config.

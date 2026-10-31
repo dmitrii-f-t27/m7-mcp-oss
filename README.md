@@ -121,7 +121,10 @@ Then add the server to your MCP client. For Cursor, `~/.cursor/mcp.json`:
 }
 ```
 
-`install.sh` does the same interactively. `M7_PROJECT_PATH` is optional. The
+`install.sh` does the same interactively. The server also reads a `.env` file
+in the M7 install directory (the parent of `dist/`; `cp .env.example .env`).
+It does not read a `.env` from its working directory, and variables set in
+the `env` block above win over the file. `M7_PROJECT_PATH` is optional. The
 server picks the project in this order: the `project_path` of a tool call, MCP
 roots, `CURSOR_WORKSPACE` / `WORKSPACE_FOLDER_PATHS`, `AGENT_TRANSCRIPTS`,
 `M7_PROJECT_PATH`, a guess from recent Cursor activity, and last the working

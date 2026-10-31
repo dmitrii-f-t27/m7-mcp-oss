@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import dotenv from 'dotenv';
-dotenv.config({ quiet: true });
+import { loadInstallEnv } from './core/utils/loadEnv.js';
+// Keys come from the process environment or from the .env in the install
+// directory (the parent of dist/). A .env in the working directory is not read.
+loadInstallEnv(import.meta.url);
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
