@@ -18,7 +18,7 @@ import { buildConsolidationInstruction } from '../../../memory/promotionConsolid
 import { formatZodError } from '../../utils/errorFormatter.js';
 import { getProjectPath } from '../../utils/projectPath.js';
 import { appendIfManaged, updateIfManaged } from '../../utils/safeWrite.js';
-import { resolveContainedEntry } from '../../security/pathGuard.js';
+import path from 'path';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('[memoryTool]');
@@ -301,27 +301,6 @@ function routeToReferenceFile(
   return { file: 'CYCLE_REGISTRY.md', title: contextKeys[0] || 'Knowledge entry' };
 }
 
-/**
- * Sync into a reference file of the project (SEC-7). The file is resolved with
- * resolveContainedEntry first: its folder must lie inside the project, also through
- * symlinks, and a link at the file itself is not followed. Then the marker rule of
- * appendIfManaged decides. Today all targets sit at the project root.
- */
-async function appendToReferenceFile(projectPath: string, file: string, entry: string): Promise<'appended' | 'not-synced'> {
-  const target = await resolveContainedEntry(projectPath, file);
-  return target === null ? 'not-synced' : appendIfManaged(target, entry);
-}
-
-/** Same as appendToReferenceFile, for a file that is rewritten with `transform`. */
-async function updateReferenceFile(
-  projectPath: string,
-  file: string,
-  transform: (existing: string) => string,
-): Promise<'updated' | 'not-synced'> {
-  const target = await resolveContainedEntry(projectPath, file);
-  return target === null ? 'not-synced' : updateIfManaged(target, transform);
-}
-
 const METADATA_HEADING = '## Project Metadata (auto-synced)';
 
 /**
@@ -479,12 +458,13 @@ export const unifiedMemoryTool = {
             if (bridgeTarget) {
               try {
                 const projectPath = getProjectPath();
+                const filePath = path.join(projectPath, bridgeTarget.file);
                 const entry = `\n### ${bridgeTarget.title}\n${content.substring(0, 500)}\n- **Level:** ${mappedLevel} | **Added:** ${new Date().toISOString().split('T')[0]}\n`;
                 // Only a file that M7 wrote (marker in its first 4 KB) is appended to.
-                const synced = await appendToReferenceFile(projectPath, bridgeTarget.file, entry);
+                const synced = await appendIfManaged(filePath, entry);
                 response += synced === 'appended'
                   ? `📝 Also synced to ${bridgeTarget.file}\n`
-                  : `📝 Not synced to ${bridgeTarget.file} (the file is missing, not managed by M7, or not inside the project)\n`;
+                  : `📝 Not synced to ${bridgeTarget.file} (the file is missing or not managed by M7)\n`;
               } catch (err) {
                 log.debug(`Reference file sync to ${bridgeTarget.file} failed:`, err);
               }
@@ -516,11 +496,12 @@ export const unifiedMemoryTool = {
           // Only a file that M7 wrote (marker in its first 4 KB) is appended to.
           try {
             const projectPath = getProjectPath();
+            const standardsPath = path.join(projectPath, 'CODING_STANDARDS.md');
             const entry = `\n### ${pattern.name}\n- **Description:** ${pattern.description}\n- **Tags:** ${(pattern.tags || []).join(', ') || 'none'}\n- **Added:** ${new Date().toISOString().split('T')[0]}\n`;
-            const synced = await appendToReferenceFile(projectPath, 'CODING_STANDARDS.md', entry);
+            const synced = await appendIfManaged(standardsPath, entry);
             response += synced === 'appended'
               ? `📝 Also synced to CODING_STANDARDS.md\n`
-              : `📝 Not synced to CODING_STANDARDS.md (the file is missing, not managed by M7, or not inside the project)\n`;
+              : `📝 Not synced to CODING_STANDARDS.md (the file is missing or not managed by M7)\n`;
           } catch (err) {
             log.debug('CODING_STANDARDS.md update failed (non-critical):', err);
           }
@@ -553,6 +534,7 @@ export const unifiedMemoryTool = {
           // v3.18: Bridge → sync project metadata to MASTER_REFERENCE.md
           try {
             const projectPath = getProjectPath();
+            const masterRefPath = path.join(projectPath, 'MASTER_REFERENCE.md');
             const section = [
               `\n## Project Metadata (auto-synced)`,
               project.name ? `- **Name:** ${project.name}` : '',
@@ -566,10 +548,10 @@ export const unifiedMemoryTool = {
             ].filter(Boolean).join('\n') + '\n';
 
             // Only a file that M7 wrote (marker in its first 4 KB) is changed; a missing file is not created.
-            const synced = await updateReferenceFile(projectPath, 'MASTER_REFERENCE.md', existing => mergeMetadataSection(existing, section));
+            const synced = await updateIfManaged(masterRefPath, existing => mergeMetadataSection(existing, section));
             response += synced === 'updated'
               ? `📝 Also synced to MASTER_REFERENCE.md\n`
-              : `📝 Not synced to MASTER_REFERENCE.md (the file is missing, not managed by M7, or not inside the project)\n`;
+              : `📝 Not synced to MASTER_REFERENCE.md (the file is missing or not managed by M7)\n`;
           } catch (err) {
             log.debug('MASTER_REFERENCE.md sync failed (non-critical):', err);
           }
