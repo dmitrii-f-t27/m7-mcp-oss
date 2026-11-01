@@ -273,9 +273,42 @@ describe('callRules and callRulesOrThrow', () => {
     // Division is not in bytes_rules, so make the trap in a hand-written module: (func unreachable).
     const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 5, 1, 1, 102, 0, 0, 10, 5, 1, 3, 0, 0, 11]);
     const f = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.f;
-    assert.throws(() => f(), /unreachable/i);
+    assert.throws(() => f(), error => error instanceof WebAssembly.RuntimeError && /unreachable/i.test(error.message), 'a trap is a WebAssembly.RuntimeError');
     assert.equal(rules.callRules(() => f(), 'refused'), 'refused');
     assert.equal(rules.callRules(x => x.by_fold_ascii(66), -1), 98, 'the rules still answer afterwards');
+  });
+
+  it('a real trap of the rules wasm, through callRules and through callRulesOrThrow, replaces the instance', () => {
+    // pr_has_nul reads len bytes from the address it is given. An address far past the end of the memory makes the wasm
+    // trap (memory access out of bounds), and that is a WebAssembly.RuntimeError from the live instance itself.
+    const FAR = 0x7ffffff0;
+    const runs = {
+      callRules: call => rules.callRules(call, -7),
+      callRulesOrThrow: call => {
+        assert.throws(() => rules.callRulesOrThrow(call), rules.RulesUnavailableError);
+        return -7;
+      },
+    };
+    for (const [label, run] of Object.entries(runs)) {
+      rules.setRulesExportsForTests(null);
+      const seen = [];
+      let trap = null;
+      rules.callRules(x => seen.push(x), 0);
+      assert.equal(run(x => {
+        seen.push(x);
+        try {
+          return x.pr_has_nul(FAR, 64);
+        } catch (e) {
+          trap = e;
+          throw e;
+        }
+      }), -7, `${label}: the refusing value`);
+      assert.ok(trap instanceof WebAssembly.RuntimeError, `${label}: the wasm trapped, got ${String(trap)}`);
+      rules.callRules(x => seen.push(x), 0);
+      assert.equal(seen[0], seen[1], `${label}: the call that trapped ran on the live instance`);
+      assert.notEqual(seen[1], seen[2], `${label}: the trap replaced the instance`);
+      assert.equal(rules.callRules(x => x.by_fold_ascii(66), -1), 98, `${label}: the new instance answers`);
+    }
   });
 
   it('a refused argument inside callRules returns onFail', () => {

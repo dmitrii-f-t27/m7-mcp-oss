@@ -92,8 +92,9 @@ function brokenRules(override = {}) {
   });
 }
 /**
- * Run `fn` with `stub` as the backend. A throw from the backend drops the instance (the next call gets a fresh one),
- * so a stub serves one failing call: use one `under` per call that must fail.
+ * Run `fn` with `stub` as the backend, then take it out: `setRulesExportsForTests(null)` forgets it, so the next call loads
+ * the real rules from the file. The loader drops an instance only for a `WebAssembly.RuntimeError` (a trap); the stubs here
+ * throw a plain Error, so a stub stays installed and serves every call inside one `under`.
  */
 function under(stub, fn) {
   rules.setRulesExportsForTests(stub);
@@ -655,7 +656,7 @@ describe('A failing backend gives the refusing value of each rule', () => {
     assert.equal(under(brokenRules({ pr_needs_switch: () => 5 }), () => pp.needsProjectSwitch('/a', '/a')), true, 'the right answer is false');
   });
 
-  it('a backend that traps once does not poison the next call: the instance is replaced', () => {
+  it('a failing backend does not poison the next call: once the stub is taken out, the real rules answer', () => {
     assert.equal(under(brokenRules(), () => guard.isInside('/a', '/a/b')), false);
     assert.equal(guard.isInside('/a', '/a/b'), true, 'the real rules answer again');
     assert.equal(guard.pushRefusal('.env'), guard.REFUSE_SECRET);

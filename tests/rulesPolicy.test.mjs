@@ -86,7 +86,11 @@ function brokenRules(override = {}) {
     },
   });
 }
-/** A throw from the backend drops the instance, so a stub serves one failing call: one `under` per call. */
+/**
+ * Install `stub` as the backend for `fn`, then take it out: `setRulesExportsForTests(null)` forgets it, so the next call loads
+ * the real rules from the file. The loader drops an instance only for a `WebAssembly.RuntimeError` (a trap); the stubs here throw
+ * a plain Error, so a stub stays installed and serves every call inside one `under`.
+ */
 function under(stub, fn) {
   rules.setRulesExportsForTests(stub);
   try {
@@ -501,7 +505,7 @@ describe('New behaviour: limits, unwritable text and a failing backend', () => {
     assert.equal(under(brokenRules({ po_remote_classification: () => 2 }), () => ic.isRemoteClassificationEnabled({ M7_ALLOW_REMOTE_CLASSIFICATION: 'true' })), false, 'the right answer is true');
   });
 
-  it('a backend that traps once does not poison the next call: the instance is replaced', () => {
+  it('a failing backend does not poison the next call: once the stub is taken out, the real rules answer', () => {
     assert.equal(under(brokenRules(), () => sw.hasManagedMarker(MARKER)), false);
     assert.equal(sw.hasManagedMarker(MARKER), true);
     assert.equal(sw.managedStateOf(null), 'absent');
