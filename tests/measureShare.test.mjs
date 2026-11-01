@@ -644,25 +644,35 @@ describe('the README share paragraph', () => {
   const paragraph = readme.split('\n').find(line => line.startsWith('**t27 share:'));
   const N = '(\\d[\\d,]*)';
   const SHA = '([0-9a-f]{7,40})';
+  const PCT = '(\\d+\\.\\d\\d)';
   const PATTERN = new RegExp(
-    `^\\*\\*t27 share: (\\d+\\.\\d\\d)% of logic points, measured at ${SHA}\\.\\*\\* ${N} of the ${N} logic points in the TypeScript of \`${SHA}\` moved to ${N} t27 specs ` +
-    `\\(${N} functions, ${N} lines\\), compiled to one WebAssembly file\\. The TypeScript now holds ${N} points, ${N} of them new, mostly in the wrappers around the specs\\. ` +
-    `(\\d+\\.\\d\\d)% is \`\\(${N} - ${N}\\) / ${N}\`\\. A logic point is one branch, loop, regex literal or text transform, counted by \`node scripts/measure-t27-share\\.mjs\`\\. ` +
+    `^\\*\\*t27 share: ${PCT}% of the measured logic points, or ${PCT}% with three loader files counted, measured at ${SHA}\\.\\*\\* ` +
+    `${N} points moved: ${N} of the ${N} logic points in the TypeScript of \`${SHA}\` now sit in ${N} t27 specs ` +
+    `\\(${N} functions, ${N} lines\\), compiled to one WebAssembly file\\. The measured TypeScript now holds ${N} points, ${N} of them new, mostly in the wrappers around the specs\\. ` +
+    `${PCT}% is \`\\(${N} - ${N}\\) / ${N}\`\\. ` +
+    `Three files are outside that count: \`src/rules/wasm\\.ts\`, \`src/rules/marshal\\.ts\` and \`src/rules/generated/constants\\.ts\`, the loader, with ${N} logic points in ${N} code lines\\. ` +
+    `Counting them, the share is ${PCT}%, which is \`\\(${N} - \\(${N} \\+ ${N}\\)\\) / ${N}\`\\. ` +
+    `A logic point is one branch, loop, regex literal or text transform, counted by \`node scripts/measure-t27-share\\.mjs\`\\. ` +
     'It counts code shapes, not importance, and its sampled error rate is in `docs/T27_BOUNDARY\\.md`\\. ' +
-    `What moved: path, network, write-policy and peer-text rules\\. Everything else, ${N} code lines of it, is still TypeScript\\. ` +
+    `What moved: path, network, write-policy and peer-text rules\\. Everything else, ${N} code lines of it, is still TypeScript, and so are the ${N} lines of the three files\\. ` +
     '\\[docs/T27_BOUNDARY\\.md\\]\\(docs/T27_BOUNDARY\\.md\\) lists what stays native and why\\.$',
   );
   const num = s => Number(s.replace(/,/g, ''));
+  /** (base - points) / base in percent, truncated to two decimals, never rounded up. */
+  const truncated = (base, points) => (Math.floor(((base - points) * 10000) / base) / 100).toFixed(2);
 
   it('has the exact wording and every number equals shareNumbers at WORKTREE', T, () => {
     assert.ok(paragraph, 'README.md has no paragraph that starts with "**t27 share:"');
     const m = PATTERN.exec(paragraph);
     assert.ok(m, `the paragraph does not have the wording of the rule:\n${paragraph}`);
-    const [, p, codeSha, moved, base, baseSha, specs, specFns, t27Lines, now, added, p2, b1, n1, b2, codeLines] = m;
+    const [, p, pAll, codeSha, grossMoved, moved, base, baseSha, specs, specFns, t27Lines, now, added, p2, f1, f2, f3, bPoints, bLines, pAll2, a1, a2, a3, a4, codeLines, bLines2] = m;
     const n = shareNumbers({ repo: ROOT, rev: 'WORKTREE' });
-    const truncated = (Math.floor(((n.base - n.now) * 10000) / n.base) / 100).toFixed(2);
-    assert.equal(p, truncated, 'p is (B - N) / B in percent, truncated to two decimals, never rounded up');
-    assert.equal(p2, truncated);
+    assert.equal(p, truncated(n.base, n.now), 'p is (B - N) / B in percent, truncated to two decimals, never rounded up');
+    assert.equal(p2, p);
+    assert.equal(pAll, truncated(n.base, n.now + n.boundaryFiles.points), 'allIn: the share with the three boundary files counted');
+    assert.equal(pAll2, pAll);
+    assert.equal(n.allIn, shareOf(n.base, n.now + n.boundaryFiles.points));
+    assert.equal(num(grossMoved), n.moved);
     assert.equal(num(moved), n.moved);
     assert.equal(num(base), n.base);
     assert.equal(num(specs), n.specs);
@@ -670,11 +680,22 @@ describe('the README share paragraph', () => {
     assert.equal(num(t27Lines), n.t27Lines);
     assert.equal(num(now), n.now);
     assert.equal(num(added), n.added);
-    assert.deepEqual([num(b1), num(n1), num(b2)], [n.base, n.now, n.base]);
+    assert.deepEqual([num(f1), num(f2), num(f3)], [n.base, n.now, n.base]);
+    assert.equal(n.boundaryFiles.files, 3, 'the paragraph names three files');
+    assert.equal(num(bPoints), n.boundaryFiles.points);
+    assert.equal(num(bLines), n.boundaryFiles.lines);
+    assert.equal(num(bLines2), n.boundaryFiles.lines);
+    assert.deepEqual([num(a1), num(a2), num(a3), num(a4)], [n.base, n.now, n.boundaryFiles.points, n.base]);
     assert.equal(num(codeLines), n.codeLines);
     assert.equal(baseSha, BASE_REV, 'the base of the share is the revision the script measures against');
     assert.equal(n.added, n.now - (n.base - n.moved));
     assert.notEqual(resolveRev(ROOT, codeSha), null, `the commit ${codeSha} the share was measured at is not in this repository`);
+  });
+
+  it('names the three boundary files that the script keeps apart', () => {
+    for (const file of ['src/rules/wasm.ts', 'src/rules/marshal.ts', 'src/rules/generated/constants.ts']) {
+      assert.ok(paragraph?.includes(`\`${file}\``), `${file} is named in the paragraph`);
+    }
   });
 
   it('claims nothing the share does not show', () => {

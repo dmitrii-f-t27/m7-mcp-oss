@@ -22,7 +22,7 @@ The order in which the specs are compiled is `specs/ORDER`. The functions the se
 
 **How a call goes.** The facade writes the text into a fixed buffer inside the wasm memory, calls the rule with the true length of the text, and reads the answer. Cross-spec calls carry numbers only. A facade decides nothing about the text: its job is to refuse when anything is wrong.
 
-**The loader** (`src/rules/wasm.ts`, with `src/rules/marshal.ts` and `src/rules/generated/constants.ts`) reads `wasm/` next to `dist/`. No environment variable or option changes that path. It checks the SHA-256 of the file against `WASM_SHA256`, checks that the file has no imports, and calls known-answer functions before it serves a call. `src/index.ts` calls `assertRulesLoaded()` at start; a missing or changed wasm stops the server with exit code 1. After a trap the instance is dropped and the next call makes a new one. A failed load stays failed.
+**The loader** (`src/rules/wasm.ts`, with `src/rules/marshal.ts` and `src/rules/generated/constants.ts`) reads `wasm/` next to `dist/`. No environment variable or option changes that path. It checks the SHA-256 of the file against `WASM_SHA256`, checks that the file has no imports, and calls known-answer functions before it serves a call. `src/index.ts` calls `assertRulesLoaded()` at start; a missing or changed wasm stops the server with exit code 1. After a trap (a `WebAssembly.RuntimeError`) the instance is dropped and the next call makes a new one. A refusal before the wasm is entered, such as a text over its limit, keeps the instance. A failed load stays failed.
 
 **Fail closed.** If the wasm is missing, a call traps, an answer is not one the facade knows, or the input does not fit, each facade gives the refusing value of its rule: no path is inside the project, a verdict refuses, a Host or Origin is not allowed, a file is foreign and is skipped, no temperature is sent, remote classification stays off, a directory is not empty, and peer text is replaced by `[peer text refused: rules unavailable]`. The raw text is never returned.
 
@@ -54,7 +54,7 @@ What moved: path containment, name and control-path verdicts, the project-source
 
 **The oracles.** Each moved rule is tested against the old TypeScript, transpiled at `c41f8ce` by `scripts/make-oracle.mjs` into `tests/oracles/*.mjs`. A differential test runs the oracle and the facade on the same inputs (every edge, every code point of the control ranges, seeded random inputs; the seed is `M7_RULES_SEED`, default 27) and compares the answers. The oracles are never loaded by the server.
 
-**The share.** `node scripts/measure-t27-share.mjs` gives the numbers in the README. The base is the logic points of the TypeScript at `c41f8ce`: 10,823. The share is `(10,823 - points now) / 10,823`. The points now include 48 new ones: 35 are in the four facades (`pathRules.ts` 24, `meshRules.ts` 8, `policyRules.ts` 2, `netRules.ts` 1) and 13 are in the safety-tool fix (SEC-33: `trapCatalog.ts` 11, `inputAnalyzer.ts` 2), which is TypeScript and not part of the move.
+**The share.** `node scripts/measure-t27-share.mjs` gives the numbers in the README. The base is the logic points of the TypeScript at `c41f8ce`: 10,823. The share is `(10,823 - points now) / 10,823`. The points now include 48 new ones: 35 are in the four facades (`pathRules.ts` 24, `meshRules.ts` 8, `policyRules.ts` 2, `netRules.ts` 1) and 13 are in the safety-tool fix (SEC-33: `trapCatalog.ts` 11, `inputAnalyzer.ts` 2), which is TypeScript and not part of the move. With the three boundary files counted as TypeScript (45 points), the share is 0.17%: `(10,823 - (10,759 + 45)) / 10,823`. `shareNumbers` gives both (`allIn` is the second).
 
 ## 3. What stays native, and why
 
@@ -67,7 +67,7 @@ What moved: path containment, name and control-path verdicts, the project-source
 | `toText`, `plainNumber`, the `Array.isArray` branch in `untrustedList`, the presence check in `untrustedOr` | JavaScript value conversion (`String()`, `Number.isFinite`) and a missing-value check. They do not look at the content of peer text. |
 | The `?:` in `anthropicSampling` | It builds a request object. The rule it asks (`modelTakesTemperature`) moved. |
 | The facades in `src/rules/` | They move bytes and refuse. Their own branches are the fail-closed choices and are counted as TypeScript. |
-| Everything else | The 54,319 code lines the README names are all the TypeScript in `src/` (tests excluded), the files above and the facades included. Nothing else moved. |
+| Everything else | The 54,319 code lines the README names are the TypeScript in `src/` (tests excluded) except three boundary files: `src/rules/wasm.ts`, `src/rules/marshal.ts` and `src/rules/generated/constants.ts` (341 code lines, 45 logic points), which the script counts apart (section 1). The facades are in the 54,319. Nothing else moved. |
 
 The table lists what the plan kept native. A rule that t27 cannot express stays native, and is added to this table with the reason.
 
@@ -110,6 +110,8 @@ Inside the limits, the new rules give the same answer as the old code on every t
 |---|---|---|---|---|
 | Path | A path over 4,096 bytes (over 16,384 bytes after folding, for a verdict) | No limit | Refused: verdict "too long", containment false, relative part null | `tests/rulesPath.test.mjs` |
 | Path | A path with a lone surrogate | Compared UTF-16 code units | Refused | `tests/rulesPath.test.mjs` |
+| Path | `trimTrailingDotSpace` or `foldName` of a segment over 16,384 bytes, or with a lone surrogate | The trailing dots and spaces were cut, with no limit | `trimTrailingDotSpace` returns the text unchanged; `foldName` returns the folded text without the cut (they are for comparison only, and the verdicts refuse such a path) | `tests/rulesPath.test.mjs` |
+| Path | `pathSegments` of a path over 4,096 bytes, with a lone surrogate, or when the rules fail | Always returned the segments | Throws `RulesUnavailableError`, so no caller carries on with segments the rules did not split | `tests/rulesPath.test.mjs` |
 | Network | A port that is not a whole number from 0 to 65,535 | Put into the string and compared | Host and Origin refused, also a request with no Origin header | `tests/rulesNet.test.mjs` |
 | Policy | A model name over 256 bytes | A name that is not Opus got a temperature | No temperature | `tests/rulesPolicy.test.mjs` |
 | Policy | A directory listing over 65,536 bytes (names, each followed by a NUL byte) | Empty if every name was an ignored one | Not empty | `tests/rulesPolicy.test.mjs` |
@@ -122,6 +124,12 @@ Inside the limits, the new rules give the same answer as the old code on every t
 | Peer text | `max` that is not a whole number from 0 to 2^31-1 (`NaN`, `Infinity`, negative, fraction, not a number) | Compared as a number; `Infinity` meant no cut | Refused: `[peer text refused: rules unavailable]`. No caller in `src/` passes such a value (they pass 150, 200 or 300) | `tests/rulesMesh.test.mjs` |
 | Peer text | `withPeerHeader` on a text over the limit, or when the rules fail | The header only when the text held `<<<` | The header always goes first, because the fence cannot be ruled out | `tests/rulesMesh.test.mjs` |
 | All | The wasm is missing, changed or broken | (not applicable) | The server does not start. If it fails later, each rule gives its refusing value | `tests/rulesWasm.test.mjs` and each `tests/rules*.test.mjs` |
+
+**Changed form, same answer.** These are not differences; they are listed so that nobody has to find them in the history.
+
+- **Two safety patterns** (`src/core/safety/trapCatalog.ts`) were cubic in the length of the text. `/[0-9@$!]{3,}.*[a-z]/i` is now `/[0-9@$!]{3}.*[a-z]/i`, and `/output.*(safe|clean|harmless).*regardless/i` is now `/output(?=(.*?)(safe|clean|harmless))\1\2.*regardless/i`. Same answer, proved by a differential test: the old and the new pattern agree on 300,000 seeded strings each (`tests/safetyVerdicts.test.mjs`), including line ends, case and overlapping words. The test has power: wrong rewrites differ on 1,580 to 56,590 strings. The time on 4 KB of digits fell from 7.9 s to 7 ms.
+- **A byte order mark.** The facades decode with `ignoreBOM: true`. Paths now match the oracle: a U+FEFF at the start of a segment is kept in `pathSegments`, `trimTrailingDotSpace` and `relativeWithin` (before the fix the decoder dropped it; the verdicts were not affected, because the fold removes U+FEFF). Peer text had no live difference: the rules turn U+FEFF into a space and no answer starts with one. A stub test pins that a BOM in the answer of the rules is kept (`tests/rulesPath.test.mjs`, `tests/rulesMesh.test.mjs`).
+- **The instance is replaced on a trap only.** A refusal before the call, such as an Origin over 256 bytes, no longer drops the instance (`tests/rulesWasm.test.mjs` counts the instances: one for 71 calls, 60 of them refused; it was 61). A stack overflow inside the wasm arrives as a `RangeError`, not as a `WebAssembly.RuntimeError`, so the instance is not replaced for it. No spec function is recursive (checked on the call graph of the 53 functions: no function calls itself, directly or through another), so that overflow cannot be reached.
 
 ## 7. Memory and load time
 
@@ -142,7 +150,9 @@ The wasm memory grew by 7,864,320 bytes: 7.5 MiB, 120 pages. That is the address
 
 The worst case in the tests: `peerLine` on 3,145,728 characters `<`, then `peerBlock` on 1,048,576 three-byte characters. The process grew from 43.5 MiB to 71.5 MiB (+28.0 MiB). The two calls took 14.1 ms and 12.8 ms. Of the 28 MiB, 7.5 MiB are wasm pages the calls wrote (3 MiB of input, 4.5 MiB of output). Those stay resident for the life of the process, because wasm memory does not shrink. The rest is JavaScript strings and buffers, which the garbage collector frees. A normal peer value of a few hundred bytes touches only the first pages of each buffer.
 
-Package size (`npm pack --dry-run`) at the code commit of the peer-text rules, before the documents of the last stage: 918 files, 1,282,505 bytes packed, 5,812,690 bytes unpacked. At `c41f8ce`: 1,195,591 bytes packed, 5,482,034 bytes unpacked. `docs/` is not in the package.
+The instance rule (section 6) does not change the table: it measures a fresh process with one instance. What changed is the repeated allocation: before, every refused input dropped the instance, and the next call made a new one with a new 23.6 MiB wasm memory that the garbage collector had to free (61 instances for the 71 calls of the test, one now). The bytes of that churn were not measured.
+
+Package size (`npm pack --dry-run`) at the code commit of the peer-text rules, before the documents of the last stage: 918 files, 1,282,505 bytes packed, 5,812,690 bytes unpacked. At `c41f8ce`: 1,195,591 bytes packed, 5,482,034 bytes unpacked. `docs/T27_BOUNDARY.md` is in the package (`package.json` `files`), so the package has one file more than that count.
 
 ## 8. Not provable without the toolchain: a hand-edited manifest
 
@@ -161,6 +171,6 @@ T27C=<path to t27c> ZIG=<path to zig> CC=clang specs/generate.sh          # gene
 T27C=<path to t27c> ZIG=<path to zig> CC=clang specs/generate.sh --check  # compare with the tree; changes nothing
 ```
 
-`specs/T27C_PIN` names the compilers the output was made with: t27c 0.5.1 at commit `579bc55aa`, and Zig 0.15.2. `generate.sh` stops if the compilers it is given report anything else. It lints the specs (`specs/lint.mjs`), runs each spec natively at `-O2` and under the address and undefined-behaviour sanitizers, checks the test count against the specs, builds the wasm, checks its imports and exports, and writes the constants and the manifest.
+`specs/T27C_PIN` names the compilers the output was made with: t27c 0.5.1 at commit `579bc55aa`, and Zig 0.15.2. `generate.sh` compares version strings: `t27c --version` must say `t27c 0.5.1` and `zig version` must say `0.15.2`. It does not check the commit of t27c; that is checked by hand in the final checks (the commit of the t27c build that was used). It lints the specs (`specs/lint.mjs`), runs each spec natively at `-O2` and under the address and undefined-behaviour sanitizers, checks the test count against the specs, builds the wasm, checks its imports and exports, and writes the constants and the manifest.
 
 `t27c` and Zig are not part of this repository and are not changed by it. Their licences are in `NOTICE`.

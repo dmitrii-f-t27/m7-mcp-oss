@@ -568,6 +568,25 @@ describe('New behaviour: limits and unwritable text', () => {
     assert.equal(guard.linkLeavesRoot('/a', '/a/\udc00'), true);
     assert.equal(guard.isPlainEntryName('a\ud800'), false);
   });
+
+  it('trimTrailingDotSpace and foldName leave a segment over 16384 bytes or with a lone surrogate uncut; pathSegments throws on such text', () => {
+    const edge = `${'a'.repeat(16382)}. `;
+    assert.equal(bytes(edge), 16384);
+    assert.equal(guard.trimTrailingDotSpace(edge), 'a'.repeat(16382), '16384 bytes are cut');
+    assert.equal(legacy.trimTrailingDotSpace(edge), 'a'.repeat(16382), 'as the oracle does');
+    const over = `${'a'.repeat(16383)}. `;
+    assert.equal(bytes(over), 16385);
+    assert.equal(legacy.trimTrailingDotSpace(over), 'a'.repeat(16383), 'the oracle cut at any length');
+    assert.equal(guard.trimTrailingDotSpace(over), over, '16385 bytes are returned unchanged');
+    assert.equal(guard.foldName(`${'A'.repeat(16383)}. `), over, 'foldName gives the folded text, not cut');
+    assert.equal(legacy.trimTrailingDotSpace('a\ud800. '), 'a\ud800');
+    assert.equal(guard.trimTrailingDotSpace('a\ud800. '), 'a\ud800. ', 'a lone surrogate: unchanged');
+    assert.equal(guard.foldName('NAME\ud800. '), 'name\ud800. ');
+    assert.deepEqual(legacy.pathSegments('a/\ud800'), ['a', '\ud800'], 'the oracle always split');
+    assert.throws(() => guard.pathSegments('a/\ud800'), rules.RulesUnavailableError);
+    assert.throws(() => guard.pathSegments(`a/${'b'.repeat(5000)}`), rules.RulesUnavailableError);
+    assert.deepEqual(guard.pathSegments('a/b'), ['a', 'b']);
+  });
 });
 
 // ---------------------------------------------------------------------------
