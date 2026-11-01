@@ -1199,19 +1199,24 @@ describe('SEC-32: docs/REPENTANCE.md is never written through a symlink', () => 
 });
 
 describe('SEC-32: TASK_META.json is never written through a symlink', () => {
-  // analyze_task makes the task folder from the task text and writes TASK_META.json into the folder
-  // of that name under the project root. The control below fails if this name ever changes.
+  // analyze_task makes the task folder from the task text (`docs/debug/<name>` for this task's route)
+  // and writes TASK_META.json into that real task folder. The control below fails if this name or
+  // route ever changes.
   const TASK_FOLDER = 'add-retry-to-the-http-client-w_add-retry-to-the-http-client-w';
+  const TASK_DIR = 'docs/debug/' + TASK_FOLDER;
 
   it('analyze_task leaves the outside file alone when the task folder holds a TASK_META.json link', T, async () => {
     await withNested(async ({ proj, outside }) => {
       const target = path.join(outside, 'meta-target.json');
       await writeFile(target, OUTSIDE_FILE_TEXT);
-      await mkdir(path.join(proj, TASK_FOLDER));
-      await symlink(target, path.join(proj, TASK_FOLDER, 'TASK_META.json'));
-      await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+      await mkdir(path.join(proj, TASK_DIR), { recursive: true });
+      await symlink(target, path.join(proj, TASK_DIR, 'TASK_META.json'));
+      const res = await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+      // The tool used this folder, so the link is on the path of the write.
+      assert.ok(existsSync(path.join(proj, TASK_DIR, 'DISCOVERY_REPORT.md')), `analyze_task did not use ${TASK_DIR}`);
       assert.equal(await readFile(target, 'utf8'), OUTSIDE_FILE_TEXT, 'analyze_task replaced the file the TASK_META.json link names');
-      assert.ok((await lstat(path.join(proj, TASK_FOLDER, 'TASK_META.json'))).isSymbolicLink(), 'TASK_META.json was replaced');
+      assert.ok((await lstat(path.join(proj, TASK_DIR, 'TASK_META.json'))).isSymbolicLink(), 'TASK_META.json was replaced');
+      assert.match(res.text, /⏭️[^\n]*TASK_META\.json/, `TASK_META.json must be reported as kept:\n${res.text.slice(0, 800)}`);
     });
   });
 
@@ -1228,9 +1233,9 @@ describe('SEC-32: TASK_META.json is never written through a symlink', () => {
   it('control: analyze_task and createTask still write a regular TASK_META.json into a task folder', T, async () => {
     const { TaskGraphManager } = await import(distUrl('core/task-graph/taskGraphManager.js'));
     await withNested(async ({ proj }) => {
-      await mkdir(path.join(proj, TASK_FOLDER));
       await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
-      const viaTool = path.join(proj, TASK_FOLDER, 'TASK_META.json');
+      assert.ok(!existsSync(path.join(proj, TASK_FOLDER)), 'no bare folder at the project root');
+      const viaTool = path.join(proj, TASK_DIR, 'TASK_META.json');
       assert.ok((await lstat(viaTool)).isFile(), 'analyze_task did not write TASK_META.json');
       assert.equal(JSON.parse(await readFile(viaTool, 'utf8')).title, TASK.slice(0, 100));
 
@@ -1239,6 +1244,53 @@ describe('SEC-32: TASK_META.json is never written through a symlink', () => {
       const direct = path.join(proj, 'docs', 'debug', 't1', 'TASK_META.json');
       assert.ok((await lstat(direct)).isFile(), 'createTask did not write TASK_META.json');
       assert.equal(JSON.parse(await readFile(direct, 'utf8')).taskId, 't1');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TaskNode.folder: always a project-relative path
+// ---------------------------------------------------------------------------
+
+// The task graph keeps a `folder` for every task. It is a project-relative path with forward
+// slashes (`docs/debug/<name>`), never a bare name and never absolute. analyze_task used to hand
+// the graph the bare folder name, so TASK_META.json was not written into the task folder, and
+// warmup compared the field with an absolute path, so it dropped every task with a relative folder.
+
+describe('TaskNode.folder is a project-relative path', () => {
+  it('analyze_task records a project-relative task folder and writes TASK_META.json inside it', T, async () => {
+    await withNested(async ({ proj }) => {
+      await callTool(proj, 'mcp_m7_analyze_task', { task_description: TASK }, { settleMs: 800 });
+      const graph = JSON.parse(await readFile(path.join(proj, '.m7', 'task-graph.json'), 'utf8'));
+      const nodes = Object.values(graph.nodes);
+      assert.equal(nodes.length, 1, `the task graph must hold the one task:\n${JSON.stringify(graph.nodes).slice(0, 400)}`);
+      const { id, folder } = nodes[0];
+      assert.match(folder, /^docs\/(?:debug|features)\/[^/\\]+$/, `folder must be docs/debug|features/<name>, got ${JSON.stringify(folder)}`);
+      const meta = path.join(proj, folder, 'TASK_META.json');
+      assert.ok(existsSync(meta), `TASK_META.json is not in the task folder ${folder}`);
+      assert.ok((await lstat(meta)).isFile(), 'TASK_META.json is not a regular file');
+      assert.equal(JSON.parse(await readFile(meta, 'utf8')).taskId, id, 'TASK_META.json names another task');
+    });
+  });
+
+  it('warmup lists tasks with a relative folder', T, async () => {
+    await withNested(async ({ proj }) => {
+      const s = await startServer(proj);
+      try {
+        const made = await s.call('mcp_m7_analyze_task', { task_description: TASK });
+        assert.ok(!made.isError, `analyze_task failed:\n${made.text.slice(0, 400)}`);
+        await sleep(800);
+        const res = await s.call('mcp_m7_warmup', { action: 'warmup', scope: 'standard', force: true });
+        assert.ok(!res.isError, `warmup failed:\n${res.text.slice(0, 400)}`);
+        const section = res.text.split('Активные M7 задачи')[1] ?? '';
+        assert.ok(section.includes(TASK.slice(0, 50)), `warmup does not list the task:\n${res.text.slice(0, 800)}`);
+        const state = JSON.parse(await readFile(path.join(proj, '.m7', 'warm-state.json'), 'utf8'));
+        const tasks = state.snapshot?.activeTasks ?? [];
+        assert.equal(tasks.length, 1, `the warm state must hold the one task: ${JSON.stringify(tasks)}`);
+        assert.match(tasks[0].folder, /^docs\/(?:debug|features)\/[^/\\]+$/, `the warm state folder is not project-relative: ${JSON.stringify(tasks[0].folder)}`);
+      } finally {
+        await s.stop('close');
+      }
     });
   });
 });

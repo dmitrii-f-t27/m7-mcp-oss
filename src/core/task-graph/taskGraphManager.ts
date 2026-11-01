@@ -26,7 +26,7 @@ import {
 } from '../types/taskGraph.js';
 import { TaskInterpretation } from '../types/interpretation.js';
 import { getProjectPath, onProjectPathChange } from '../utils/projectPath.js';
-import { writeRegularFile } from '../utils/safeWrite.js';
+import { writeRegularFileIfAbsent } from '../utils/safeWrite.js';
 
 const log = createLogger('[TaskGraphManager]');
 
@@ -36,6 +36,12 @@ const log = createLogger('[TaskGraphManager]');
 export interface CreateTaskOptions {
   id: string;
   title: string;
+  /**
+   * The task folder as a project-relative path with forward slashes
+   * (`docs/debug/<name>`, `m7-cycles/recon-...`). Never a bare name and never absolute.
+   * TASK_META.json is created in it when absent; an existing entry there is kept.
+   * Records saved earlier keep the value they have.
+   */
   folder: string;
   sessionId?: string;
   interpretation?: TaskInterpretation;
@@ -187,8 +193,8 @@ export class TaskGraphManager {
     };
     
     try {
-      await writeRegularFile(this.projectPath, metaRel, JSON.stringify(meta, null, 2));
-      log.debug(`Task meta saved: ${metaRel}`);
+      await writeRegularFileIfAbsent(this.projectPath, metaRel, JSON.stringify(meta, null, 2));
+      log.debug(`Task meta saved or kept: ${metaRel}`);
     } catch (error: any) {
       log.warn(`Failed to save task meta: ${error.message}`);
     }

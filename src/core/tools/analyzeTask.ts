@@ -18,11 +18,12 @@ import { getCrossSessionLearning } from '../../cross-session/index.js';
 import { createM7StructureInternal } from './createStructure.js';
 import { checkSystemHealth, formatHealthStatus } from '../health/index.js';
 import { needsM7Init, needsM7InitNote, initProjectInternal, ColdStartResult } from './initProject.js';
-import { M7_MANAGED_MARKER, writeManagedFile } from '../utils/safeWrite.js';
+import { M7_MANAGED_MARKER, pathExistsNoFollow, writeManagedFile } from '../utils/safeWrite.js';
 import { resolveContainedEntry } from '../security/pathGuard.js';
 import { getProjectPath, ensureProjectPathResolved } from '../utils/projectPath.js';
 import { scanProjectScope, ScopeContext } from '../scope/index.js';
 import path from 'path';
+import { promises as fs } from 'fs';
 import { classifyIntent, ClassifiedIntent, ScanPatternId } from '../intelligence/intentClassifier.js';
 
 // v3.6: Architecture Context
@@ -31,7 +32,7 @@ import { getArchitectureContextAnalyzer, ArchitectureContext } from '../architec
 // v4.0: M7 Evolution imports
 import { isFeatureEnabled, getInterpretationSettings } from '../config/featureFlags.js';
 import { getInterpretationGenerator, InterpretationInput, TaskInterpretation } from '../interpretation/index.js';
-import { getTaskGraphManager } from '../task-graph/index.js';
+import { getTaskGraphManager, TASK_META_FILENAME } from '../task-graph/index.js';
 import { getTransferManager, ScopeCheckInput, ScopeAlert } from '../task-transfer/index.js';
 import { handleWarmupTool } from './warmupTool.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -524,7 +525,7 @@ Please verify all libraries before proceeding with task analysis.`
       }
 
       // v3.3: Auto-create M7 structure when new session is created
-      let structureResult: { folder: string; files: string[]; skipped: string[]; success: boolean; error?: string } | null = null;
+      let structureResult: { folder: string; relFolder: string; files: string[]; skipped: string[]; success: boolean; error?: string } | null = null;
       if (session && sessionAction === 'created') {
         try {
           // Extract clean task ID from session ID (remove 'task_' prefix and timestamp suffix)
@@ -538,10 +539,11 @@ Please verify all libraries before proceeding with task analysis.`
             description: task_description
           }, server);
           
-          if (result.success && result.folder && result.files) {
+          if (result.success && result.folder && result.relFolder && result.files) {
             structureResult = {
               success: true,
               folder: result.folder,
+              relFolder: result.relFolder,
               files: result.files,
               skipped: result.skipped ?? []
             };
@@ -560,13 +562,26 @@ Please verify all libraries before proceeding with task analysis.`
           const graphManager = getTaskGraphManager();
           await graphManager.initialize();
           
+          // createTask creates TASK_META.json in the task folder and keeps any entry that is already there.
+          const metaRel = `${structureResult.relFolder}/${TASK_META_FILENAME}`;
+          const metaAbs = path.join(projectPath, metaRel);
+          const metaExisted = await pathExistsNoFollow(metaAbs);
+          
           await graphManager.createTask({
             id: session.id,
             title: task_description.slice(0, 100),
-            folder: structureResult.folder,
+            folder: structureResult.relFolder,
             sessionId: session.id,
             interpretation: interpretation || undefined
           });
+          
+          // Report TASK_META.json with the other files: as kept if it was there before, as created if M7 wrote it.
+          if (metaExisted) {
+            structureResult.files.push(metaRel);
+            structureResult.skipped.push(metaRel);
+          } else if ((await fs.lstat(metaAbs).catch(() => null))?.isFile()) {
+            structureResult.files.push(metaRel);
+          }
           
           log.debug(`M7 v4.0] ✓ Task registered in graph: ${session.id}`);
         } catch (e: any) {

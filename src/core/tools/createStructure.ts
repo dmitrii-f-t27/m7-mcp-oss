@@ -215,9 +215,14 @@ async function createM7Files(
   return { created, skipped };
 }
 
-function generateM7Files(taskId: string, route: string, folderName?: string) {
+// The folder of one task, relative to the project root, with forward slashes.
+function taskFolderPath(route: string, folderName: string): string {
   const baseDir = route === 'light' ? 'docs/features' : 'docs/debug';
-  const taskDir = `${baseDir}/${folderName || taskId}`;
+  return `${baseDir}/${folderName}`;
+}
+
+function generateM7Files(taskId: string, route: string, folderName?: string) {
+  const taskDir = taskFolderPath(route, folderName || taskId);
 
   // Parse task context from taskId for smarter templates
   const context: TemplateContext = {
@@ -475,7 +480,10 @@ Mental readiness:
 // Used by analyzeTask.ts and initProject.ts
 export interface CreateStructureResult {
   success: boolean;
+  /** The folder name, for display (`<id>_<slug>`). */
   folder?: string;
+  /** The task folder as a project-relative path with forward slashes (`docs/debug/<name>`). */
+  relFolder?: string;
   /** Every path of the task folder, created or kept. */
   files?: string[];
   /** The paths in `files` that already existed and were left unchanged. */
@@ -509,6 +517,7 @@ export async function createM7StructureInternal(
     return {
       success: true,
       folder: semanticFolder,
+      relFolder: taskFolderPath(route, semanticFolder),
       files: files.map(f => f.path),
       skipped
     };

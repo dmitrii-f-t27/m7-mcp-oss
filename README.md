@@ -144,9 +144,9 @@ creates none of these files and points to `mcp_m7_init_project`.
 
 With the default `create_session: true`, `mcp_m7_analyze_task` also creates a
 task folder of templates under `docs/debug/<folder>/` or `docs/features/<folder>/`
-(the seven M7 phase files). It never replaces a file there: a file that already
-exists is kept and reported as kept. Pass `create_session: false` to turn this
-off.
+(the seven M7 phase files, and `TASK_META.json` when the task graph is on). It never
+replaces a file there: a file that already exists is kept and reported as kept. Pass
+`create_session: false` to turn this off.
 From then on, start tasks with
 `mcp_m7_analyze_task` and follow the instructions the server returns.
 

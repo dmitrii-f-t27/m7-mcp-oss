@@ -149,6 +149,21 @@ export async function writeRegularFile(root: string, rel: string, content: strin
   await fs.writeFile(abs, content, 'utf-8');
 }
 
+/**
+ * Create the file `rel` under `root` only when nothing is there (SEC-32). It makes the same
+ * containment check as `writeRegularFile` and throws, writing nothing, when the folder above the
+ * file leaves the project. Any entry that exists is kept: `wx` fails on a regular file and on a
+ * symlink, dangling or not, so both answer 'skipped'. Use it for a project file that M7 must not
+ * replace once it is there.
+ *
+ * Limit: the check and the write are two steps. A link planted between them is not caught.
+ */
+export async function writeRegularFileIfAbsent(root: string, rel: string, content: string): Promise<WriteOutcome> {
+  const abs = await resolveContainedEntry(root, rel);
+  if (abs === null) throw new Error(`Refusing to write outside the project: ${rel}`);
+  return writeIfAbsent(abs, content);
+}
+
 /** Append `entry` only to an existing file that carries the marker. */
 export async function appendIfManaged(absPath: string, entry: string): Promise<'appended' | 'not-synced'> {
   if (managedSyncAction(await readManagedState(absPath)) !== 'sync') return 'not-synced';

@@ -241,6 +241,13 @@ const MUTANTS = [
     find: 'hostname: hostname(),', replace: "hostname: require('os').hostname(),",
     test: ACCEPTANCE, name: 'joining the mesh writes the presence file',
   },
+  {
+    id: 'SEC-32 (task meta)', file: 'dist/core/task-graph/taskGraphManager.js',
+    find: 'await writeRegularFileIfAbsent(this.projectPath, metaRel, JSON.stringify(meta, null, 2));',
+    replace: "await fs.writeFile(path.join(this.projectPath, metaRel), JSON.stringify(meta, null, 2), 'utf-8');",
+    test: 'tests/sec-write-paths.test.mjs',
+    name: 'analyze_task leaves the outside file alone when the task folder holds a TASK_META.json link',
+  },
 ];
 
 const env = {

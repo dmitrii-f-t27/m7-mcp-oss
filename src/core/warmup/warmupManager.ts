@@ -482,9 +482,6 @@ export class WarmupManager {
       const relations: TaskRelation[] = [];
       
       for (const task of recentTasks) {
-        // Filter: only tasks belonging to current project
-        if (task.folder && !task.folder.startsWith(this.projectPath)) continue;
-
         activeTasks.push({
           id: task.id,
           title: task.title,

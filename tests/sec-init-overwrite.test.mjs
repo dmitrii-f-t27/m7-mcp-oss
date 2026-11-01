@@ -505,7 +505,11 @@ describe('task folder files are never replaced', () => {
       }
 
       const reported = reportedStructure(res.text);
-      assert.equal(reported.length, 7, `expected 7 reported files:\n${JSON.stringify(reported)}`);
+      // The seven template files and TASK_META.json, which the task graph writes into the task folder.
+      assert.equal(reported.length, 8, `expected 8 reported files:\n${JSON.stringify(reported)}`);
+      const taskMeta = reported.filter(r => r.path.endsWith('/TASK_META.json'));
+      assert.equal(taskMeta.length, 1, `expected one TASK_META.json:\n${JSON.stringify(reported)}`);
+      assert.equal(taskMeta[0].mark, '✅', 'a TASK_META.json that M7 wrote must be reported as created');
       const discovery = reported.filter(r => r.path.endsWith('/DISCOVERY_REPORT.md'));
       assert.equal(discovery.length, 1);
       assert.equal(discovery[0].mark, '⏭️', 'the kept file must be reported as kept, not as created');
@@ -514,6 +518,26 @@ describe('task folder files are never replaced', () => {
         assert.equal(r.mark, '✅', `${r.path} should be reported as created`);
         assert.ok(existsSync(path.join(dir, r.path)), `${r.path} is reported but not on disk`);
       }
+    });
+  });
+
+  it('analyze_task keeps an existing TASK_META.json in the task folder and reports it as kept', T, async () => {
+    await withDir(() => makeProject('sec-taskmeta-'), async dir => {
+      // The route decides debug or features; seed both so the test does not depend on it.
+      const edited = [`docs/debug/${TASK_SLUG}/TASK_META.json`, `docs/features/${TASK_SLUG}/TASK_META.json`];
+      await seed(dir, edited);
+
+      const res = await callTool(dir, 'mcp_m7_analyze_task', { task_description: TASK });
+      assert.ok(!res.isError, `analyze_task failed:\n${res.text.slice(0, 400)}`);
+
+      for (const rel of edited) {
+        assert.equal(await readFile(path.join(dir, rel), 'utf8'), foreignText(rel), `${rel} was overwritten`);
+      }
+
+      const taskMeta = reportedStructure(res.text).filter(r => r.path.endsWith('/TASK_META.json'));
+      assert.equal(taskMeta.length, 1, `expected one TASK_META.json in the answer:\n${JSON.stringify(taskMeta)}`);
+      assert.equal(taskMeta[0].mark, '⏭️', 'the kept file must be reported as kept, not as created');
+      assert.ok(edited.includes(taskMeta[0].path), `kept file is not the edited one: ${taskMeta[0].path}`);
     });
   });
 
