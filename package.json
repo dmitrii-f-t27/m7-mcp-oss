@@ -66,6 +66,10 @@
     "config/**/*",
     "templates/**/*",
     "workflows/**/*",
+    "wasm/**/*",
+    "specs/**/*",
+    "NOTICE",
+    "SECURITY.md",
     "README.md",
     "LICENSE"
   ]

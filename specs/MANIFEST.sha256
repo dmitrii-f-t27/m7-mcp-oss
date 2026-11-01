@@ -1,0 +1,12 @@
+# Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
+# SHA-256 of the files the rules wasm is built from and into. Written by specs/generate.sh. Do not edit.
+da6c64622b7aa9dce84f6d2d1b0c12ab9f9677f53610c8430ffd8fafe5f4a4bb  specs/ORDER
+68ea5f813afe675eebf4189a457cb4c170a5e9fc44046bf9e51d4b9a28e646b4  specs/T27C_PIN
+97b62ae652e974a3538722090d54f8e9b0fbcd4f655cc7784ee1096bf570edcd  specs/bytes_rules.t27
+f75a7dc0250b15670536cbb2e2321f79fbbe113210737ca4ca3543728a8659b1  specs/exports.txt
+8ad4a7b4ac6bdaa6e4f2ba4a7bcac2a5e7b16896080d3db37db350c83f0c4da6  specs/generate.sh
+7da9202d5a2e3f871fe4580e4a91fa18a79135a60188a685d59e79028ed2cfb4  specs/generated/bytes_rules.h
+87a738c171dc4927ecee614dca44b9b8f226ca688950724f06f48958c7c56f2f  specs/lint.mjs
+7a4d04ed9844365f1398f431e3471efde30a1720db9464e214b38baeefe8c7e3  specs/wasm/m7_rules_wasm.c
+169709945496cab63ebb9f9d9fd4e26a70cf4d7bf75daa2a87661e353af0042d  src/rules/generated/constants.ts
+9d7bb5119b7b64fdc8b164e6e6fc276f3904fe73fe838f8e45d768bd7d896dcb  wasm/m7_rules.wasm

@@ -1,0 +1,3 @@
+# Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
+# Names exported from wasm/m7_rules.wasm, in the order of specs/ORDER. One or more names per line.
+by_fold_ascii by_is_sep by_is_cont

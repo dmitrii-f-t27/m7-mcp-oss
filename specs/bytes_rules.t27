@@ -1,0 +1,60 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
+; Byte rules that the other rule specs use. Cross-spec calls take scalars only, so these three
+; functions take and return single bytes and flags.
+; They are the t27 form of isSeparator and foldAscii in src/core/security/pathGuard.ts, and of the
+; UTF-8 continuation byte test that the path rules need.
+module BytesRules;
+
+pub const BY_SLASH : u8 = 47;
+pub const BY_BACKSLASH : u8 = 92;
+pub const BY_UPPER_A : u8 = 65;
+pub const BY_UPPER_Z : u8 = 90;
+pub const BY_CASE_GAP : u8 = 32;
+pub const BY_CONT_LO : u8 = 128;
+pub const BY_CONT_HI : u8 = 191;
+
+; ASCII upper case becomes lower case. Every other byte stays.
+pub fn by_fold_ascii(b: u8) -> u8 {
+    if (b >= BY_UPPER_A and b <= BY_UPPER_Z) { return b + BY_CASE_GAP; }
+    return b;
+}
+
+; A path separator: "/" always, and "\" when win is true.
+pub fn by_is_sep(b: u8, win: bool) -> bool {
+    if (b == BY_SLASH) { return true; }
+    if (win and b == BY_BACKSLASH) { return true; }
+    return false;
+}
+
+; A UTF-8 continuation byte: 0x80 to 0xBF.
+pub fn by_is_cont(b: u8) -> bool {
+    if (b >= BY_CONT_LO and b <= BY_CONT_HI) { return true; }
+    return false;
+}
+
+test by_fold_ascii_edges {
+    assert by_fold_ascii(64) == 64;
+    assert by_fold_ascii(65) == 97;
+    assert by_fold_ascii(90) == 122;
+    assert by_fold_ascii(91) == 91;
+    assert by_fold_ascii(97) == 97;
+    assert by_fold_ascii(255) == 255;
+}
+
+test by_is_sep_edges {
+    assert by_is_sep(47, false) == true;
+    assert by_is_sep(47, true) == true;
+    assert by_is_sep(92, false) == false;
+    assert by_is_sep(92, true) == true;
+    assert by_is_sep(46, true) == false;
+    assert by_is_sep(0, true) == false;
+}
+
+test by_is_cont_edges {
+    assert by_is_cont(127) == false;
+    assert by_is_cont(128) == true;
+    assert by_is_cont(191) == true;
+    assert by_is_cont(192) == false;
+    assert by_is_cont(0) == false;
+    assert by_is_cont(255) == false;
+}

@@ -37,3 +37,4 @@ modified and 25 added. These cannot carry a comment and are changed too:
   package-lock.json
   package.json
   tests/fixtures/tools-base-3.22.2.json
+  wasm/m7_rules.wasm

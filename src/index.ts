@@ -146,6 +146,7 @@ import { extractZodSchema } from './core/utils/schemaConverter.js';
 import { getProjectPath, getProjectPathDiagnostics, initFromMcpRoots, onProjectPathChange, bindMcpServerForRoots, ensureProjectPathResolved, isRootsResolutionComplete, needsProjectSwitch } from './core/utils/projectPath.js';
 import { registerShutdownContributor } from './core/shutdown/flushOnExit.js';
 import { PACKAGE_VERSION } from './core/utils/packageVersion.js';
+import { assertRulesLoaded } from './rules/wasm.js';
 import { dataDirRefusal, M7_DATA_DIRS } from './core/security/pathGuard.js';
 class M7MCPServer {
   private server: McpServer;
@@ -954,6 +955,7 @@ class M7MCPServer {
   }
 }
 
+try { assertRulesLoaded(); } catch (e) { process.stderr.write(`[M7] Rules unavailable: ${(e as Error).message}\n`); process.exit(1); }
 const server = new M7MCPServer();
 server.run().catch(err => {
   // v8.1: Exit cleanly on pipe errors
