@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
-# Runs every tests/*.test.mjs and tests/reliability/*.test.mjs in isolation
+# Runs every tests/*.test.mjs, tests/reliability/*.test.mjs and the compiled safety
+# tests dist/core/safety/__tests__/*.test.js in isolation
 # with a per-file timeout, then fails if any test wrote into the repository.
 # Usage: scripts/run-tests.sh [timeout_seconds]
 #
@@ -28,7 +29,7 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:9"
 pass=0; fail=0; failed=()
 marker="$(mktemp "${TMPDIR:-/tmp}/m7-test-start.XXXXXX")"
 
-for f in tests/*.test.mjs tests/reliability/*.test.mjs; do
+for f in tests/*.test.mjs tests/reliability/*.test.mjs dist/core/safety/__tests__/*.test.js; do
   out="/tmp/m7-test-out.$$"
   if perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" node --test --test-force-exit "$f" >"$out" 2>&1; then
     echo "OK      $f"; pass=$((pass+1))

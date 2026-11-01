@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Input Analyzer — Extracts structural signals from raw text.
  *
@@ -55,6 +56,7 @@ const AUTHORITY_BYPASS_PATTERNS: RegExp[] = [
   /maintenance mode/i,
   /testing mode/i,
   /admin override/i,
+  /sudo mode/i,
   /special access/i,
 ];
 
@@ -169,7 +171,12 @@ export class InputAnalyzer {
 
     const avgWordLen = words.reduce((s, w) => s + w.length, 0) / words.length;
     const nonAsciiRatio = (text.replace(/[\x00-\x7f]/g, '').length) / text.length;
-    const maxWordLen = Math.max(...words.map(w => w.length));
+    // A loop, not Math.max(...spread): the spread throws a RangeError on a very long word
+    // list, and the old pipeline answered that error with pass.
+    let maxWordLen = 0;
+    for (const w of words) {
+      if (w.length > maxWordLen) maxWordLen = w.length;
+    }
 
     if (maxWordLen > 40 || nonAsciiRatio > 0.3 || avgWordLen > 20) return 'anomalous';
     if (maxWordLen > 25 || nonAsciiRatio > 0.15 || avgWordLen > 12) return 'suspicious';

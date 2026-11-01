@@ -249,6 +249,16 @@ const MUTANTS = [
     test: 'tests/sec-write-paths.test.mjs',
     name: 'analyze_task leaves the outside file alone when the task folder holds a TASK_META.json link',
   },
+  {
+    id: 'SEC-33 (authority)', file: 'dist/core/safety/trapCatalog.js',
+    find: 'LIFTS_CONTENT_LIMITS.test(a.normalized)', replace: 'false',
+    test: 'dist/core/safety/__tests__/stress.test.js', name: 'Sudo/admin mode claim',
+  },
+  {
+    id: 'SEC-33 (fail closed)', file: 'dist/core/safety/pipeline.js',
+    find: "return this.failClosed(start, 'input_trap');", replace: "return this.passThrough(start, 'input_trap_error');",
+    test: 'tests/safetyVerdicts.test.mjs', name: 'a scan error answers block',
+  },
 ];
 
 const env = {

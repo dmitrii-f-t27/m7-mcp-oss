@@ -1,11 +1,12 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Safety Pipeline — Orchestrates TRAP detection + Intent verification.
  *
  * Architecture: Input TRAP → Intent Extract → Intent Verify → Output TRAP
- * Fail-open: errors in any stage → degrade to pass (not block).
+ * Fail-closed: an error in any stage answers block.
  */
 
-import type { PipelineResult, ScanResult, VerificationResult } from './types.js';
+import type { PipelineResult, PipelineStage, ScanResult, VerificationResult } from './types.js';
 import { TrapDetector } from './trapDetector.js';
 import { IntentVerifier } from './intentVerifier.js';
 import { InputAnalyzer } from './inputAnalyzer.js';
@@ -47,7 +48,7 @@ export class SafetyPipeline {
     try {
       inputScan = this.trapDetector.scanInput(input);
     } catch {
-      return this.passThrough(start, 'input_trap_error');
+      return this.failClosed(start, 'input_trap');
     }
 
     if (inputScan.blocked) {
@@ -91,8 +92,8 @@ export class SafetyPipeline {
           };
         }
       } catch {
-        // Fail-open: intent layer error → continue without it
-        intentExtracted = false;
+        // Fail-closed: an intent layer error answers block, not pass.
+        return this.failClosed(start, 'intent_verification');
       }
     }
 
@@ -127,7 +128,7 @@ export class SafetyPipeline {
     try {
       outputScan = this.trapDetector.scanOutput(output);
     } catch {
-      return this.passThrough(start, 'output_trap_error');
+      return this.failClosed(start, 'output_trap');
     }
 
     if (outputScan.blocked) {
@@ -168,6 +169,20 @@ export class SafetyPipeline {
     }
 
     return { input: inputResult, output: outputResult };
+  }
+
+  private failClosed(startTime: number, stage: PipelineStage): PipelineResult {
+    return {
+      action: 'block',
+      stage,
+      metadata: {
+        trapsEvaluated: 0,
+        intentExtracted: false,
+        verificationPassed: false,
+        totalTimeMs: Date.now() - startTime,
+        blockedBy: 'ENGINE_ERROR',
+      },
+    };
   }
 
   private passThrough(startTime: number, reason: string): PipelineResult {

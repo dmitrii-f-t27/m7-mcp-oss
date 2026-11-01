@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * TRAP Catalog — Jailbreak Attack Pattern Registry
  *
@@ -60,6 +61,23 @@ const TRAP_J_003: TrapDefinition = {
   ],
   discriminate: (a: InputAnalysis) =>
     a.hasConstraintRemoval || /system\s*prompt/i.test(a.normalized),
+};
+
+const TRAP_J_004: TrapDefinition = {
+  id: 'TRAP-J-004',
+  class: 'PERSONA_OVERRIDE',
+  name: 'Persona framing around a weapon, poison or malware topic',
+  severity: 'MEDIUM',
+  action: 'warn',
+  description: 'Asks the model to play a role while the text names a weapon, poison or malware topic',
+  surfacePatterns: [
+    { pattern: /pretend/i, weight: 0.4, description: 'pretend framing' },
+    { pattern: /role-?play/i, weight: 0.4, description: 'role-play framing' },
+    { pattern: /act as/i, weight: 0.4, description: 'role assignment' },
+  ],
+  discriminate: (a: InputAnalysis) =>
+    a.hasPersonaInstruction &&
+    /\b(napalm|explosives?|bombs?|weapons?|ricin|sarin|anthrax|nerve agent|methamphetamine|fentanyl|malware|ransomware)\b/i.test(a.normalized),
 };
 
 // ── CLASS 02: Encoding Bypass ──
@@ -168,7 +186,7 @@ const TRAP_J_030: TrapDefinition = {
     { pattern: /in theory/i, weight: 0.3, description: 'theory framing' },
   ],
   discriminate: (a: InputAnalysis) => {
-    const dangerousTopics = /\b(hack|exploit|weapon|bomb|synthe[st]i[sz]|poison|malware|ransomware|methamphetamine|fentanyl|ricin|sarin|anthrax)\b/i;
+    const dangerousTopics = /\b(hack|exploit|weapon|bomb|synthe[st]i[sz]\w*|poison|malware|ransomware|methamphetamine|fentanyl|ricin|sarin|anthrax)\b/i;
     return a.hasHypotheticalFrame && dangerousTopics.test(a.normalized);
   },
 };
@@ -184,9 +202,10 @@ const TRAP_J_031: TrapDefinition = {
     { pattern: /what (should|would) (someone|I|you) (not|never) do/i, weight: 0.5, description: 'negation question' },
     { pattern: /tell me (what|how) not to/i, weight: 0.4, description: 'not-to framing' },
     { pattern: /mistakes.*(to avoid|people make)/i, weight: 0.3, description: 'mistakes framing' },
+    { pattern: /\b(should|must) (not|never) do\b/i, weight: 0.5, description: 'should-not framing' },
   ],
   discriminate: (a: InputAnalysis) => {
-    const dangerousTopics = /\b(hack|break into|exploit|attack|synthesiz|manufacture)\b/i;
+    const dangerousTopics = /\b(hack|break into|exploit|attack|synthesiz\w*|manufacture)\b/i;
     return dangerousTopics.test(a.normalized);
   },
 };
@@ -265,6 +284,10 @@ const TRAP_J_042: TrapDefinition = {
 
 // ── CLASS 06: Authority Claims ──
 
+// Switching off content, safety or ethical limits. Used only together with an authority
+// claim (TRAP-J-050), so plain text such as "remove all limits on upload size" stays a pass.
+const LIFTS_CONTENT_LIMITS = /\b(bypass|disable|remove|lift|ignore)\b[^.!?]{0,20}\b(content|safety|ethical)\b[^.!?]{0,20}\b(polic(y|ies)|rules?|limits?|restrictions?|filters?|guidelines?)\b|\b(content|safety|ethical)\s+(polic(y|ies)|rules?|limits?|restrictions?|filters?)\b[^.!?]{0,20}\b(disabled|lifted|removed|off)\b/i;
+
 const TRAP_J_050: TrapDefinition = {
   id: 'TRAP-J-050',
   class: 'AUTHORITY_CLAIM',
@@ -277,9 +300,10 @@ const TRAP_J_050: TrapDefinition = {
     { pattern: /anthropic/i, weight: 0.3, description: 'Anthropic reference' },
     { pattern: /(authorized|approved|allowed) (by|from|this)/i, weight: 0.6, description: 'authorization claim' },
     { pattern: /developer mode/i, weight: 0.7, description: 'dev mode claim' },
+    { pattern: /admin override|sudo mode/i, weight: 0.7, description: 'admin claim' },
   ],
   discriminate: (a: InputAnalysis) =>
-    a.hasAuthorityBypss && (a.hasConstraintRemoval || a.hasCapabilityExpansion),
+    a.hasAuthorityBypss && (a.hasConstraintRemoval || a.hasCapabilityExpansion || LIFTS_CONTENT_LIMITS.test(a.normalized)),
 };
 
 const TRAP_J_051: TrapDefinition = {
@@ -295,7 +319,7 @@ const TRAP_J_051: TrapDefinition = {
     { pattern: /lives? (depend|at stake|in danger)/i, weight: 0.5, description: 'lives at stake' },
   ],
   discriminate: (a: InputAnalysis) => {
-    const harmful = /\b(hack|weapon|explosive|synthe[st]i[sz]|poison)\b/i;
+    const harmful = /\b(hack|weapon|explosive|synthe[st]i[sz]\w*|poison|ricin|sarin|anthrax)\b/i;
     return harmful.test(a.normalized);
   },
 };
@@ -343,6 +367,7 @@ export const TRAP_CATALOG: TrapDefinition[] = [
   TRAP_J_001,
   TRAP_J_002,
   TRAP_J_003,
+  TRAP_J_004,
   // Class 02: Encoding Bypass
   TRAP_J_010,
   TRAP_J_011,
