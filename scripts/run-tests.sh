@@ -18,6 +18,8 @@ TIMEOUT="${1:-120}"
 export CURSOR_WORKSPACE="${CURSOR_WORKSPACE:-$PWD}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-sk-test-placeholder}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-sk-ant-test-placeholder}"
+export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:9/v1}"
+export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://127.0.0.1:9}"
 
 pass=0; fail=0; failed=()
 marker="$(mktemp "${TMPDIR:-/tmp}/m7-test-start.XXXXXX")"
