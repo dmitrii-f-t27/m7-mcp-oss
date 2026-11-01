@@ -68,6 +68,7 @@
     "workflows/**/*",
     "wasm/**/*",
     "specs/**/*",
+    "docs/T27_BOUNDARY.md",
     "NOTICE",
     "SECURITY.md",
     "README.md",

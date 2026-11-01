@@ -92,9 +92,13 @@ The rules go by names, so they make errors. Boundary is a lower bound, and glue 
 
 ## 5. Sampled error rate
 
-Sampled error rate: **NOT MEASURED. To be filled from the reviewer's audit.** No number is given here.
+Sampled error rate: **7.7% of code lines (23 of 300, 95% Wilson interval 5.2% to 11.2%).** One reviewer, an AI model, judged a sample from `--rev c41f8ce --sample 300 --seed 27`, with no second rater. A line counts as wrong when another class fits its role better, even if it follows the written rule; most wrong lines do follow it, so this mainly measures the limits of a name-based rule.
 
-How the audit is done: `node scripts/measure-t27-share.mjs --rev c41f8ce --sample N --seed S` prints `N` classified code lines picked at random (seeded). The reviewer judges each line's class by hand; the error rate is the share of lines whose class is wrong.
+Of lines labelled `logic`, 3 of 44 are wrong (6.8%, interval 2.3% to 18.2%); that sample is small, so the figure is weak. Of lines labelled anything else, 2 of 256 are really logic (0.8%, interval 0.2% to 2.8%). The other 18 wrong lines are between non-logic classes.
+
+This audit checks line classes. The share counts logic points, which are counted separately. A text search at `c41f8ce` finds about 206 `path.join` calls counted as transforms, which inflate the denominator, and about 216 uncounted text calls such as `substring` and `toUpperCase`, which deflate it. Corrected one at a time, they would move 0.59% to 0.60% or 0.58%. Both counts are upper bounds from text search, not a full audit. Guards, `Math.*` calls and comparisons with no branch are excluded by definition.
+
+How the audit is done: `node scripts/measure-t27-share.mjs --rev c41f8ce --sample N --seed S` prints `N` classified code lines picked at random (seeded). The reviewer judges each line's class by hand; the error rate is the share of lines where another class fits the line's role better.
 
 ## 6. Known differences from the old TypeScript
 
