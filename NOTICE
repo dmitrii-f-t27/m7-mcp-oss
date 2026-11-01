@@ -27,7 +27,8 @@ Compared with commit 0ace0ab, this version:
 - prefers M7_PROJECT_PATH over the Cursor activity scan;
 - sends no temperature to Opus models, fixes task folder paths, and changes
   the installer so it merges its MCP client entry and writes no keys;
-- raises dependency versions and rewrites the documentation for this fork.
+- raises dependency versions, moves typescript to the runtime dependencies,
+  and rewrites the documentation for this fork.
 Details and what stays open: SECURITY.md and CHANGELOG.md.
 
 Each modified source or text file says so in its first lines. 62 files were

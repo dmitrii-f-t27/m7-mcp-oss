@@ -67,6 +67,8 @@ There is no coverage threshold enforced by tooling; the review checks that the c
 
 ## Documentation
 
+Apache-2.0 section 4(b): after changing a file from the original project, run `node scripts/mark-modified.mjs`, then `node scripts/check-notices.mjs`.
+
 Update the documents that describe what you changed:
 
 | Change | Update |
