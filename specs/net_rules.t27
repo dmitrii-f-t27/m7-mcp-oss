@@ -1,0 +1,139 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
+; Network rules, moved from src/visualizer/visualizer-server.ts (SEC-6). The visualizer listens on loopback
+; only. These two decisions stop a web page in the user's browser from reaching it: the Host header stops DNS
+; rebinding, the Origin header stops cross-site WebSocket connections. The TypeScript at c41f8ce stays as the
+; test oracle (tests/oracles/visualizerRulesLegacy.mjs).
+; The text is UTF-8 bytes in a buffer, with its true length. Letter case does not matter for the ASCII letters
+; of the names; any other byte must match as it is. This is the same as toLowerCase() on the whole header, because
+; no non-ASCII character has an ASCII lower case that appears in "127.0.0.1", "localhost" or "http://" (the
+; Kelvin sign U+212A becomes "k" and U+0130 becomes "i" with a dot; neither letter is in those names).
+; A text over NR_TEXT_MAX bytes, or a port outside 0..65535, is refused.
+module NetRules;
+
+pub const NR_TEXT_MAX : i32 = 256;
+pub const NR_PORT_MAX : i32 = 65535;
+pub const NR_NAME_LEN : i32 = 9;
+pub const NR_PREFIX_LEN : i32 = 7;
+pub const NR_PORT_DIGITS_MAX : i32 = 5;
+pub const NR_COLON : u8 = 58;
+pub const NR_DIGIT_0 : u8 = 48;
+pub const NR_DIGIT_9 : u8 = 57;
+
+; "127.0.0.1" and "localhost".
+pub const NR_IP_NAME : [9]u8 = [49, 50, 55, 46, 48, 46, 48, 46, 49];
+pub const NR_LOCALHOST_NAME : [9]u8 = [108, 111, 99, 97, 108, 104, 111, 115, 116];
+; "http://"
+pub const NR_HTTP_PREFIX : [7]u8 = [104, 116, 116, 112, 58, 47, 47];
+
+; Does text[at .. at+9) equal a loopback name? which: 0 = "127.0.0.1", 1 = "localhost".
+fn nr_name_at(text: [NR_TEXT_MAX]u8, len: i32, at: i32, which: i32) -> bool {
+    if (at < 0 or at + NR_NAME_LEN > len) { return false; }
+    var k: i32 = 0;
+    while (k < NR_NAME_LEN) {
+        var want: u8 = NR_IP_NAME[k];
+        if (which == 1) { want = NR_LOCALHOST_NAME[k]; }
+        if (by_fold_ascii(text[at + k]) != want) { return false; }
+        k = k + 1;
+    }
+    return true;
+}
+
+; Is text[at .. len) a colon and then the port as a plain decimal number: one to five digits, no leading zero?
+fn nr_port_at(text: [NR_TEXT_MAX]u8, len: i32, at: i32, port: i32) -> bool {
+    if (at < 0 or at >= len) { return false; }
+    if (text[at] != NR_COLON) { return false; }
+    var first: i32 = at + 1;
+    var digits: i32 = len - first;
+    if (digits < 1 or digits > NR_PORT_DIGITS_MAX) { return false; }
+    if (digits > 1 and text[first] == NR_DIGIT_0) { return false; }
+    var value: i32 = 0;
+    var i: i32 = first;
+    while (i < len) {
+        var d: i32 = text[i];
+        if (d < NR_DIGIT_0 or d > NR_DIGIT_9) { return false; }
+        value = value * 10 + d - NR_DIGIT_0;
+        i = i + 1;
+    }
+    return value == port;
+}
+
+; Is text[at .. len) a loopback name and the port?
+fn nr_loopback_at(text: [NR_TEXT_MAX]u8, len: i32, at: i32, port: i32) -> bool {
+    if (nr_name_at(text, len, at, 0) and nr_port_at(text, len, at + NR_NAME_LEN, port)) { return true; }
+    if (nr_name_at(text, len, at, 1) and nr_port_at(text, len, at + NR_NAME_LEN, port)) { return true; }
+    return false;
+}
+
+; Host header of an HTTP request. Allowed: "127.0.0.1:<port>" and "localhost:<port>" (the name in any letter
+; case). A text over NR_TEXT_MAX bytes or a port outside 0..65535: false.
+pub fn nr_host_allowed(text: [NR_TEXT_MAX]u8, len: i32, port: i32) -> bool {
+    if (len < 0 or len > NR_TEXT_MAX or port < 0 or port > NR_PORT_MAX) { return false; }
+    return nr_loopback_at(text, len, 0, port);
+}
+
+; Origin header of a WebSocket upgrade. Allowed: "http://127.0.0.1:<port>" and "http://localhost:<port>" (any
+; letter case). No Origin header at all (has_origin = false) is allowed: a local program that is not a browser
+; can already read the project. Any other value, an empty one and "null" included, is refused. A text over
+; NR_TEXT_MAX bytes or a port outside 0..65535: false, also with no Origin header.
+pub fn nr_origin_allowed(has_origin: bool, text: [NR_TEXT_MAX]u8, len: i32, port: i32) -> bool {
+    if (len < 0 or len > NR_TEXT_MAX or port < 0 or port > NR_PORT_MAX) { return false; }
+    if (!has_origin) { return true; }
+    if (len < NR_PREFIX_LEN) { return false; }
+    var k: i32 = 0;
+    while (k < NR_PREFIX_LEN) {
+        if (by_fold_ascii(text[k]) != NR_HTTP_PREFIX[k]) { return false; }
+        k = k + 1;
+    }
+    return nr_loopback_at(text, len, NR_PREFIX_LEN, port);
+}
+
+var NR_T : [NR_TEXT_MAX]u8 = [0; NR_TEXT_MAX];
+
+test nr_host {
+    var h1 : [NR_TEXT_MAX]u8 = "localhost:8080";
+    var h2 : [NR_TEXT_MAX]u8 = "LocalHost:8080";
+    var h3 : [NR_TEXT_MAX]u8 = "127.0.0.1:8080";
+    var h4 : [NR_TEXT_MAX]u8 = "localhost:08080";
+    var h5 : [NR_TEXT_MAX]u8 = "localhost:8081";
+    var h6 : [NR_TEXT_MAX]u8 = "localhost:808";
+    var h7 : [NR_TEXT_MAX]u8 = "localhost8080";
+    var h8 : [NR_TEXT_MAX]u8 = "localhost:0";
+    var h9 : [NR_TEXT_MAX]u8 = "localhost:65535";
+    assert nr_host_allowed(h1, 14, 8080) == true;
+    assert nr_host_allowed(h2, 14, 8080) == true;
+    assert nr_host_allowed(h3, 14, 8080) == true;
+    assert nr_host_allowed(h4, 15, 8080) == false;
+    assert nr_host_allowed(h5, 14, 8080) == false;
+    assert nr_host_allowed(h6, 13, 8080) == false;
+    assert nr_host_allowed(h7, 13, 8080) == false;
+    assert nr_host_allowed(h8, 11, 0) == true;
+    assert nr_host_allowed(h9, 15, 65535) == true;
+    assert nr_host_allowed(h9, 15, 65536) == false;
+    assert nr_host_allowed(h1, 14, -1) == false;
+    assert nr_host_allowed(h1, -1, 8080) == false;
+    assert nr_host_allowed(h1, 257, 8080) == false;
+    assert nr_host_allowed(h1, 13, 8080) == false;
+    assert nr_host_allowed(h1, 0, 8080) == false;
+}
+
+test nr_origin {
+    var o1 : [NR_TEXT_MAX]u8 = "http://localhost:3000";
+    var o2 : [NR_TEXT_MAX]u8 = "HTTP://127.0.0.1:3000";
+    var o3 : [NR_TEXT_MAX]u8 = "https://localhost:3000";
+    var o4 : [NR_TEXT_MAX]u8 = "http://localhost:3000/";
+    var o5 : [NR_TEXT_MAX]u8 = "null";
+    var o6 : [NR_TEXT_MAX]u8 = "http:/";
+    assert nr_origin_allowed(true, o1, 21, 3000) == true;
+    assert nr_origin_allowed(true, o2, 21, 3000) == true;
+    assert nr_origin_allowed(true, o3, 22, 3000) == false;
+    assert nr_origin_allowed(true, o4, 22, 3000) == false;
+    assert nr_origin_allowed(true, o5, 4, 3000) == false;
+    assert nr_origin_allowed(true, o6, 6, 3000) == false;
+    assert nr_origin_allowed(true, o1, 0, 3000) == false;
+    assert nr_origin_allowed(false, o1, 0, 3000) == true;
+    assert nr_origin_allowed(false, o1, 0, 0) == true;
+    assert nr_origin_allowed(false, o1, 0, 65536) == false;
+    assert nr_origin_allowed(false, o1, 0, -1) == false;
+    assert nr_origin_allowed(false, o1, 300, 3000) == false;
+    assert nr_origin_allowed(true, o1, 21, 3001) == false;
+}

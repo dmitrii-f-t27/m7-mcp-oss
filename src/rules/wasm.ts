@@ -54,6 +54,21 @@ export interface RulesExports {
   pr_env_source(hasCursor: number, hasTranscripts: number, hasM7: number, rootsComplete: number, cwdAllowsScan: number): number;
   pr_needs_switch(hasCurrent: number, cur: number, curLen: number, nxt: number, nxtLen: number): number;
   pr_unsafe_fallback(isHome: number, isValid: number): number;
+  // net_rules, policy_rules: same convention (specs/net_rules.t27, specs/policy_rules.t27).
+  nr_addr_text(): number;
+  nr_host_allowed(text: number, len: number, port: number): number;
+  nr_origin_allowed(hasOrigin: number, text: number, len: number, port: number): number;
+  po_addr_head(): number;
+  po_addr_list(): number;
+  po_addr_text(): number;
+  po_has_marker(head: number, len: number): number;
+  po_managed_state(hasHead: number, head: number, len: number): number;
+  po_write_action(state: number): number;
+  po_sync_action(state: number): number;
+  po_listing_empty(names: number, len: number, count: number): number;
+  po_needs_init_note(isEmpty: number, hasMemoryBank: number, hasCursorRules: number): number;
+  po_model_takes_temperature(model: number, len: number): number;
+  po_remote_classification(value: number, len: number): number;
 }
 
 const REQUIRED_FUNCTIONS = [
@@ -62,6 +77,9 @@ const REQUIRED_FUNCTIONS = [
   'pr_has_nul', 'pr_seg_start', 'pr_seg_end', 'pr_trim_end', 'pr_push_verdict', 'pr_pull_verdict',
   'pr_is_inside', 'pr_relative_start', 'pr_link_leaves', 'pr_plain_entry_name',
   'pr_env_source', 'pr_needs_switch', 'pr_unsafe_fallback',
+  'nr_addr_text', 'nr_host_allowed', 'nr_origin_allowed',
+  'po_addr_head', 'po_addr_list', 'po_addr_text', 'po_has_marker', 'po_managed_state', 'po_write_action', 'po_sync_action',
+  'po_listing_empty', 'po_needs_init_note', 'po_model_takes_temperature', 'po_remote_classification',
 ] as const;
 
 let verifiedModule: WebAssembly.Module | null = null;
@@ -143,6 +161,30 @@ const KNOWN_ANSWERS: Array<[string, (x: RulesExports) => number, number]> = [
   ['pr_unsafe_fallback(0, 0)', x => x.pr_unsafe_fallback(0, 0), 0],
   ['pr_env_source(1, 0, 0, 0, 0)', x => x.pr_env_source(1, 0, 0, 0, 0), 0],
   ['pr_env_source(0, 0, 0, 0, 0)', x => x.pr_env_source(0, 0, 0, 0, 0), 4],
+  ['nr_host_allowed("localhost:8080")', x => x.nr_host_allowed(x.nr_addr_text(), put(x, x.nr_addr_text(), 'localhost:8080'), 8080), 1],
+  ['nr_host_allowed("LocalHost:8080")', x => x.nr_host_allowed(x.nr_addr_text(), put(x, x.nr_addr_text(), 'LocalHost:8080'), 8080), 1],
+  ['nr_host_allowed("localhost:8081")', x => x.nr_host_allowed(x.nr_addr_text(), put(x, x.nr_addr_text(), 'localhost:8081'), 8080), 0],
+  ['nr_host_allowed("example.com:80")', x => x.nr_host_allowed(x.nr_addr_text(), put(x, x.nr_addr_text(), 'example.com:80'), 80), 0],
+  ['nr_origin_allowed(none)', x => x.nr_origin_allowed(0, x.nr_addr_text(), 0, 8080), 1],
+  ['nr_origin_allowed("http://127.0.0.1:1")', x => x.nr_origin_allowed(1, x.nr_addr_text(), put(x, x.nr_addr_text(), 'http://127.0.0.1:1'), 1), 1],
+  ['nr_origin_allowed("https://localhost:1")', x => x.nr_origin_allowed(1, x.nr_addr_text(), put(x, x.nr_addr_text(), 'https://localhost:1'), 1), 0],
+  ['po_has_marker(marker)', x => x.po_has_marker(x.po_addr_head(), put(x, x.po_addr_head(), '<!-- m7-managed -->')), 1],
+  ['po_has_marker("x")', x => x.po_has_marker(x.po_addr_head(), put(x, x.po_addr_head(), 'x')), 0],
+  ['po_managed_state(none)', x => x.po_managed_state(0, x.po_addr_head(), 0), 0],
+  ['po_managed_state(marker)', x => x.po_managed_state(1, x.po_addr_head(), put(x, x.po_addr_head(), '<!-- m7-managed -->')), 1],
+  ['po_managed_state("x")', x => x.po_managed_state(1, x.po_addr_head(), put(x, x.po_addr_head(), 'x')), 2],
+  ['po_write_action(absent)', x => x.po_write_action(0), 0],
+  ['po_write_action(foreign)', x => x.po_write_action(2), 2],
+  ['po_sync_action(managed)', x => x.po_sync_action(1), 0],
+  ['po_sync_action(absent)', x => x.po_sync_action(0), 1],
+  ['po_listing_empty(.git)', x => x.po_listing_empty(x.po_addr_list(), put(x, x.po_addr_list(), '.git\0'), 1), 1],
+  ['po_listing_empty(src)', x => x.po_listing_empty(x.po_addr_list(), put(x, x.po_addr_list(), '.git\0src\0'), 2), 0],
+  ['po_needs_init_note(0, 0, 0)', x => x.po_needs_init_note(0, 0, 0), 1],
+  ['po_needs_init_note(1, 0, 0)', x => x.po_needs_init_note(1, 0, 0), 0],
+  ['po_model_takes_temperature(opus)', x => x.po_model_takes_temperature(x.po_addr_text(), put(x, x.po_addr_text(), 'claude-opus-4')), 0],
+  ['po_model_takes_temperature(sonnet)', x => x.po_model_takes_temperature(x.po_addr_text(), put(x, x.po_addr_text(), 'claude-sonnet-4')), 1],
+  ['po_remote_classification("true")', x => x.po_remote_classification(x.po_addr_text(), put(x, x.po_addr_text(), 'true')), 1],
+  ['po_remote_classification("TRUE")', x => x.po_remote_classification(x.po_addr_text(), put(x, x.po_addr_text(), 'TRUE')), 0],
 ];
 
 function instantiate(module: WebAssembly.Module): RulesExports {

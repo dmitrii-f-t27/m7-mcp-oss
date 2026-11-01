@@ -8,13 +8,16 @@
  * starts with `claude-opus-`, and keeps it for every other model. Opus calls run
  * at the API default temperature.
  *
- * Both functions are pure and small on purpose, because the decision is meant
- * to be ported to a t27 spec.
+ * Both functions are pure and small on purpose. The decision is written in t27
+ * (specs/policy_rules.t27) and runs as WebAssembly; a model name over 256 bytes,
+ * or a failing backend, takes no temperature.
  */
+
+import { modelTakesTemp } from '../../rules/policyRules.js';
 
 /** True when M7 may send a `temperature` to this model. */
 export function modelTakesTemperature(model: string): boolean {
-  return !model.startsWith('claude-opus-');
+  return modelTakesTemp(model);
 }
 
 /**

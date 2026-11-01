@@ -11,6 +11,7 @@ import { getProjectPath, applyProjectPath, ensureProjectPathResolved } from '../
 import { createM7StructureInternal } from './createStructure.js';
 import { M7_MANAGED_MARKER, isSymlinkNoFollow, pathExistsNoFollow, writeIfAbsent } from '../utils/safeWrite.js';
 import { resolveContained, resolveContainedEntry } from '../security/pathGuard.js';
+import { listingEmpty, needsInitNote } from '../../rules/policyRules.js';
 // v5.0: Use UnifiedMemoryCore instead of MemorySystem
 import { getMemoryCore, UnifiedMemoryCore } from '../../memory/auto/unified-memory-core.js';
 
@@ -218,17 +219,15 @@ Please check permissions and try again.`
   }
 };
 
-/** The only names that do not make a directory a project: git bookkeeping, the Finder file, M7's own data folder. */
-const NOT_PROJECT_FILES = ['.git', '.gitignore', '.DS_Store', '.m7'];
-
 /**
  * Pure: is a directory with these entry names empty for M7?
- * Only `.git`, `.gitignore`, `.DS_Store` and `.m7` are ignored. Every other name,
- * hidden or not (`.github`, `.vscode`, `.env`, `.cursorrules`, ...), is the user's
- * work, so the directory is a project and M7 sets nothing up in it on its own.
+ * Only `.git`, `.gitignore`, `.DS_Store` and `.m7` are ignored (git bookkeeping, the Finder file, M7's own data
+ * folder). Every other name, hidden or not (`.github`, `.vscode`, `.env`, `.cursorrules`, ...), is the user's
+ * work, so the directory is a project and M7 sets nothing up in it on its own. The rule is in
+ * specs/policy_rules.t27; a listing over 65536 bytes, or a failing backend, is "not empty".
  */
 export function isEmptyListing(names: string[]): boolean {
-  return names.every(name => NOT_PROJECT_FILES.includes(name));
+  return listingEmpty(names);
 }
 
 /**
@@ -262,7 +261,7 @@ export async function needsM7Init(dirPath: string): Promise<boolean> {
  * True for a directory with files and with neither a memory-bank nor a .cursorrules.
  */
 export function needsInitNoteFor(state: { isEmpty: boolean; hasMemoryBank: boolean; hasCursorRules: boolean }): boolean {
-  return !state.isEmpty && !state.hasMemoryBank && !state.hasCursorRules;
+  return needsInitNote(state);
 }
 
 /** True when analyze_task should show the "M7 is not set up here" note. Writes nothing. */

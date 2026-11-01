@@ -17,3 +17,13 @@ pr_plain_entry_name	src/core/security/pathGuard.ts	isPlainEntryName	c41f8ce	test
 pr_env_source	src/core/utils/projectPath.ts	selectProjectSource	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs
 pr_needs_switch	src/core/utils/projectPath.ts	needsProjectSwitch	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs
 pr_unsafe_fallback	src/core/utils/projectPath.ts	isUnsafeFallbackPath	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs
+nr_host_allowed	src/visualizer/visualizer-server.ts	isHostAllowed	c41f8ce	tests/oracles/visualizerRulesLegacy.mjs	tests/rulesNet.test.mjs
+nr_origin_allowed	src/visualizer/visualizer-server.ts	isOriginAllowed	c41f8ce	tests/oracles/visualizerRulesLegacy.mjs	tests/rulesNet.test.mjs
+po_has_marker	src/core/utils/safeWrite.ts	hasManagedMarker	c41f8ce	tests/oracles/safeWriteLegacy.mjs	tests/rulesPolicy.test.mjs
+po_managed_state	src/core/utils/safeWrite.ts	managedStateOf	c41f8ce	tests/oracles/safeWriteLegacy.mjs	tests/rulesPolicy.test.mjs
+po_write_action	src/core/utils/safeWrite.ts	managedWriteAction	c41f8ce	tests/oracles/safeWriteLegacy.mjs	tests/rulesPolicy.test.mjs
+po_sync_action	src/core/utils/safeWrite.ts	managedSyncAction	c41f8ce	tests/oracles/safeWriteLegacy.mjs	tests/rulesPolicy.test.mjs
+po_listing_empty	src/core/tools/initProject.ts	isEmptyListing	c41f8ce	tests/oracles/initProjectLegacy.mjs	tests/rulesPolicy.test.mjs
+po_needs_init_note	src/core/tools/initProject.ts	needsInitNoteFor	c41f8ce	tests/oracles/initProjectLegacy.mjs	tests/rulesPolicy.test.mjs
+po_model_takes_temperature	src/hive/api/anthropicParams.ts	modelTakesTemperature	c41f8ce	tests/oracles/anthropicParamsLegacy.mjs	tests/rulesPolicy.test.mjs
+po_remote_classification	src/core/intelligence/intentClassifier.ts	isRemoteClassificationEnabled	c41f8ce	tests/oracles/intentClassifierLegacy.mjs	tests/rulesPolicy.test.mjs

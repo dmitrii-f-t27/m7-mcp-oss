@@ -1,0 +1,284 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
+; Write-policy rules, moved from src/core/utils/safeWrite.ts (SEC-2), src/core/tools/initProject.ts,
+; src/hive/api/anthropicParams.ts and src/core/intelligence/intentClassifier.ts (SEC-3, SEC-9). The TypeScript
+; at c41f8ce stays as the test oracle (tests/oracles/safeWriteLegacy.mjs, initProjectLegacy.mjs,
+; anthropicParamsLegacy.mjs, intentClassifierLegacy.mjs).
+; Text is UTF-8 bytes in a buffer, with its true length. A bad length, or a text over its limit, answers the
+; refusing value of the function: no marker, state "foreign", write and sync "skip", listing not empty, no init
+; note, no temperature, no remote classification.
+module PolicyRules;
+
+pub const PO_TEXT_MAX : i32 = 256;
+pub const PO_HEAD_MAX : i32 = 4096;
+pub const PO_SCAN_BYTES : i32 = 4096;
+pub const PO_LIST_MAX : i32 = 65536;
+pub const PO_MARKER_LEN : i32 = 19;
+pub const PO_OPUS_LEN : i32 = 12;
+pub const PO_TRUE_LEN : i32 = 4;
+pub const PO_NOT_PROJECT_COUNT : i32 = 4;
+
+; Answers of po_managed_state.
+pub const PO_STATE_ABSENT : i32 = 0;
+pub const PO_STATE_MANAGED : i32 = 1;
+pub const PO_STATE_FOREIGN : i32 = 2;
+; Answers of po_write_action and po_sync_action.
+pub const PO_WRITE_CREATE : i32 = 0;
+pub const PO_WRITE_UPDATE : i32 = 1;
+pub const PO_WRITE_SKIP : i32 = 2;
+pub const PO_SYNC_SYNC : i32 = 0;
+pub const PO_SYNC_SKIP : i32 = 1;
+
+; "<!-- m7-managed -->", written into templates that M7 appends to or rewrites later.
+pub const PO_MARKER : [19]u8 = [60, 33, 45, 45, 32, 109, 55, 45, 109, 97, 110, 97, 103, 101, 100, 32, 45, 45, 62];
+; "claude-opus-"
+pub const PO_OPUS_PREFIX : [12]u8 = [99, 108, 97, 117, 100, 101, 45, 111, 112, 117, 115, 45];
+; "true"
+pub const PO_TRUE : [4]u8 = [116, 114, 117, 101];
+; The only names that do not make a directory a project: ".git", ".gitignore", ".DS_Store", ".m7".
+pub const PO_NOT_PROJECT_BYTES : [26]u8 = [46, 103, 105, 116, 46, 103, 105, 116, 105, 103, 110, 111, 114, 101, 46, 68, 83, 95, 83, 116, 111, 114, 101, 46, 109, 55];
+pub const PO_NOT_PROJECT_BOUNDS : [5]i32 = [0, 4, 14, 23, 26];
+
+; Does the marker start at place at of the head?
+fn po_marker_at(head: [PO_HEAD_MAX]u8, at: i32) -> bool {
+    var k: i32 = 0;
+    while (k < PO_MARKER_LEN) {
+        if (head[at + k] != PO_MARKER[k]) { return false; }
+        k = k + 1;
+    }
+    return true;
+}
+
+; The marker must start and end inside the first PO_SCAN_BYTES bytes of the content. head holds the start of the
+; content (at least its first PO_SCAN_BYTES bytes, or all of it if it is shorter); len is the true length of the
+; content, which may be longer than the head. A negative length: false.
+pub fn po_has_marker(head: [PO_HEAD_MAX]u8, len: i32) -> bool {
+    if (len < 0) { return false; }
+    var n: i32 = len;
+    if (n > PO_SCAN_BYTES) { n = PO_SCAN_BYTES; }
+    var at: i32 = 0;
+    while (at + PO_MARKER_LEN <= n) {
+        if (po_marker_at(head, at)) { return true; }
+        at = at + 1;
+    }
+    return false;
+}
+
+; State of a file from the start of its content: no head at all (the file does not exist) is "absent"; a head
+; with the marker is "managed"; any other head is "foreign". A negative length: "foreign".
+pub fn po_managed_state(has_head: bool, head: [PO_HEAD_MAX]u8, len: i32) -> i32 {
+    if (len < 0) { return PO_STATE_FOREIGN; }
+    if (!has_head) { return PO_STATE_ABSENT; }
+    if (po_has_marker(head, len)) { return PO_STATE_MANAGED; }
+    return PO_STATE_FOREIGN;
+}
+
+; What M7 may do with a file in this state: create an absent one, update a managed one, skip the rest
+; (a state that is none of the three too).
+pub fn po_write_action(state: i32) -> i32 {
+    if (state == PO_STATE_ABSENT) { return PO_WRITE_CREATE; }
+    if (state == PO_STATE_MANAGED) { return PO_WRITE_UPDATE; }
+    return PO_WRITE_SKIP;
+}
+
+; What M7 may do when it syncs a note into an existing reference file: only a managed file is changed.
+pub fn po_sync_action(state: i32) -> i32 {
+    if (state == PO_STATE_MANAGED) { return PO_SYNC_SYNC; }
+    return PO_SYNC_SKIP;
+}
+
+; Is names[a .. b) one of the names that do not make a directory a project?
+fn po_not_project(names: [PO_LIST_MAX]u8, a: i32, b: i32) -> bool {
+    var i: i32 = 0;
+    while (i < PO_NOT_PROJECT_COUNT) {
+        var s: i32 = PO_NOT_PROJECT_BOUNDS[i];
+        var e: i32 = PO_NOT_PROJECT_BOUNDS[i + 1];
+        if (e - s == b - a) {
+            var k: i32 = 0;
+            var same: bool = true;
+            while (k < e - s) {
+                if (names[a + k] != PO_NOT_PROJECT_BYTES[s + k]) { same = false; }
+                k = k + 1;
+            }
+            if (same) { return true; }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+; Is a directory with these entry names empty for M7? names holds count names, each followed by a NUL byte.
+; Only ".git", ".gitignore", ".DS_Store" and ".m7" are ignored; every other name is the user's work. A listing
+; over PO_LIST_MAX bytes, a name that is not ended by a NUL byte, or a NUL byte inside a name (the number of
+; names is not count): not empty.
+pub fn po_listing_empty(names: [PO_LIST_MAX]u8, len: i32, count: i32) -> bool {
+    if (len < 0 or len > PO_LIST_MAX or count < 0) { return false; }
+    var a: i32 = 0;
+    var seen: i32 = 0;
+    while (a < len) {
+        var b: i32 = a;
+        while (b < len and names[b] != 0) { b = b + 1; }
+        if (b >= len) { return false; }
+        if (!po_not_project(names, a, b)) { return false; }
+        seen = seen + 1;
+        a = b + 1;
+    }
+    return seen == count;
+}
+
+; Should analyze_task tell the user that M7 is not set up here? True for a directory with files and with neither a
+; memory-bank nor a .cursorrules.
+pub fn po_needs_init_note(is_empty: bool, has_memory_bank: bool, has_cursor_rules: bool) -> bool {
+    if (is_empty) { return false; }
+    if (has_memory_bank) { return false; }
+    if (has_cursor_rules) { return false; }
+    return true;
+}
+
+; May M7 send a temperature to this model? Not to a model whose name starts with "claude-opus-". A name over
+; PO_TEXT_MAX bytes: no.
+pub fn po_model_takes_temperature(model: [PO_TEXT_MAX]u8, len: i32) -> bool {
+    if (len < 0 or len > PO_TEXT_MAX) { return false; }
+    if (len < PO_OPUS_LEN) { return true; }
+    var i: i32 = 0;
+    while (i < PO_OPUS_LEN) {
+        if (model[i] != PO_OPUS_PREFIX[i]) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+; Is the value of M7_ALLOW_REMOTE_CLASSIFICATION exactly "true"? Any other value, or none, keeps the task text
+; local. A value over PO_TEXT_MAX bytes: no.
+pub fn po_remote_classification(value: [PO_TEXT_MAX]u8, len: i32) -> bool {
+    if (len < 0 or len > PO_TEXT_MAX) { return false; }
+    if (len != PO_TRUE_LEN) { return false; }
+    var i: i32 = 0;
+    while (i < PO_TRUE_LEN) {
+        if (value[i] != PO_TRUE[i]) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+var PO_T : [PO_HEAD_MAX]u8 = [0; PO_HEAD_MAX];
+
+test po_marker_and_state {
+    var m1 : [PO_HEAD_MAX]u8 = "<!-- m7-managed -->";
+    var m2 : [PO_HEAD_MAX]u8 = "x<!-- m7-managed -->";
+    var m3 : [PO_HEAD_MAX]u8 = "<!-- m7-managed ->";
+    var m4 : [PO_HEAD_MAX]u8 = "<!-- M7-managed -->";
+    assert po_has_marker(m1, 19) == true;
+    assert po_has_marker(m2, 20) == true;
+    assert po_has_marker(m2, 19) == false;
+    assert po_has_marker(m3, 18) == false;
+    assert po_has_marker(m4, 19) == false;
+    assert po_has_marker(m1, 0) == false;
+    assert po_has_marker(m1, -1) == false;
+    assert po_managed_state(false, m1, 0) == PO_STATE_ABSENT;
+    assert po_managed_state(true, m1, 19) == PO_STATE_MANAGED;
+    assert po_managed_state(true, m3, 18) == PO_STATE_FOREIGN;
+    assert po_managed_state(true, m1, 0) == PO_STATE_FOREIGN;
+    assert po_managed_state(true, m1, -1) == PO_STATE_FOREIGN;
+    assert po_managed_state(false, m1, -1) == PO_STATE_FOREIGN;
+}
+
+test po_marker_window {
+    PO_T[4077] = 60;
+    PO_T[4078] = 33;
+    PO_T[4079] = 45;
+    PO_T[4080] = 45;
+    PO_T[4081] = 32;
+    PO_T[4082] = 109;
+    PO_T[4083] = 55;
+    PO_T[4084] = 45;
+    PO_T[4085] = 109;
+    PO_T[4086] = 97;
+    PO_T[4087] = 110;
+    PO_T[4088] = 97;
+    PO_T[4089] = 103;
+    PO_T[4090] = 101;
+    PO_T[4091] = 100;
+    PO_T[4092] = 32;
+    PO_T[4093] = 45;
+    PO_T[4094] = 45;
+    PO_T[4095] = 62;
+    assert po_has_marker(PO_T, 4096) == true;
+    assert po_has_marker(PO_T, 100000) == true;
+    assert po_has_marker(PO_T, 4095) == false;
+    PO_T[4095] = 0;
+    assert po_has_marker(PO_T, 4096) == false;
+    PO_T[4077] = 0;
+}
+
+test po_actions {
+    assert po_write_action(PO_STATE_ABSENT) == PO_WRITE_CREATE;
+    assert po_write_action(PO_STATE_MANAGED) == PO_WRITE_UPDATE;
+    assert po_write_action(PO_STATE_FOREIGN) == PO_WRITE_SKIP;
+    assert po_write_action(-1) == PO_WRITE_SKIP;
+    assert po_write_action(9) == PO_WRITE_SKIP;
+    assert po_sync_action(PO_STATE_MANAGED) == PO_SYNC_SYNC;
+    assert po_sync_action(PO_STATE_ABSENT) == PO_SYNC_SKIP;
+    assert po_sync_action(PO_STATE_FOREIGN) == PO_SYNC_SKIP;
+    assert po_sync_action(7) == PO_SYNC_SKIP;
+    assert po_needs_init_note(false, false, false) == true;
+    assert po_needs_init_note(true, false, false) == false;
+    assert po_needs_init_note(false, true, false) == false;
+    assert po_needs_init_note(false, false, true) == false;
+}
+
+test po_listing {
+    var l1 : [PO_LIST_MAX]u8 = ".git";
+    l1[4] = 0;
+    assert po_listing_empty(l1, 5, 1) == true;
+    assert po_listing_empty(l1, 0, 0) == true;
+    assert po_listing_empty(l1, 5, 2) == false;
+    assert po_listing_empty(l1, 4, 1) == false;
+    assert po_listing_empty(l1, -1, 0) == false;
+    assert po_listing_empty(l1, 65537, 1) == false;
+    l1[3] = 0;
+    assert po_listing_empty(l1, 5, 1) == false;
+    assert po_listing_empty(l1, 5, 2) == false;
+}
+
+test po_listing_limit {
+    var big : [PO_LIST_MAX]u8 = [0; PO_LIST_MAX];
+    var i : i32 = 0;
+    while (i + 5 <= PO_LIST_MAX) {
+        big[i] = 46;
+        big[i + 1] = 103;
+        big[i + 2] = 105;
+        big[i + 3] = 116;
+        big[i + 4] = 0;
+        i = i + 5;
+    }
+    assert po_listing_empty(big, 65535, 13107) == true;
+    assert po_listing_empty(big, 65535, 13106) == false;
+    assert po_listing_empty(big, 65536, 13107) == false;
+    assert po_listing_empty(big, 65537, 13107) == false;
+    big[65535] = 46;
+    assert po_listing_empty(big, 65537, 13108) == false;
+}
+
+test po_model_and_value {
+    var a : [PO_TEXT_MAX]u8 = "claude-opus-4";
+    var b : [PO_TEXT_MAX]u8 = "claude-sonnet-4";
+    var c : [PO_TEXT_MAX]u8 = "claude-opus";
+    var d : [PO_TEXT_MAX]u8 = "true";
+    var e : [PO_TEXT_MAX]u8 = "TRUE";
+    var f : [PO_TEXT_MAX]u8 = "true ";
+    assert po_model_takes_temperature(a, 13) == false;
+    assert po_model_takes_temperature(a, 12) == false;
+    assert po_model_takes_temperature(a, 11) == true;
+    assert po_model_takes_temperature(b, 15) == true;
+    assert po_model_takes_temperature(c, 11) == true;
+    assert po_model_takes_temperature(b, 0) == true;
+    assert po_model_takes_temperature(b, 257) == false;
+    assert po_model_takes_temperature(b, -1) == false;
+    assert po_remote_classification(d, 4) == true;
+    assert po_remote_classification(e, 4) == false;
+    assert po_remote_classification(f, 5) == false;
+    assert po_remote_classification(d, 3) == false;
+    assert po_remote_classification(d, 0) == false;
+    assert po_remote_classification(d, 257) == false;
+    assert po_remote_classification(d, -1) == false;
+}

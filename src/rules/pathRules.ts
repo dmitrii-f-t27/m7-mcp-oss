@@ -102,7 +102,9 @@ export function plainEntryName(name: string): boolean {
 function segmentRanges(x: RulesExports, a: number, len: number): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   let pos = 0;
-  for (;;) {
+  // Every pass moves pos forward by at least one byte, so len + 1 passes are enough; a backend that does not
+  // stop is an error, not an endless loop.
+  for (let pass = 0; pass <= len; pass++) {
     const start = x.pr_seg_start(a, len, pos);
     if (start === -1) return ranges;
     if (start < pos || start >= len) throw new RangeError(`pr_seg_start answered ${start} from ${pos} in ${len} bytes`);
@@ -111,6 +113,7 @@ function segmentRanges(x: RulesExports, a: number, len: number): Array<[number, 
     ranges.push([start, end]);
     pos = end;
   }
+  throw new RangeError(`the segment scan did not stop within ${len + 1} passes`);
 }
 
 /** The segments of `rel`, split at "/" and "\". Throws if the rules cannot split the text. */

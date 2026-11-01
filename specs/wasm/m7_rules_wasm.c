@@ -10,6 +10,8 @@
 #include "bytes_rules.h"
 #include "path_tables.h"
 #include "path_rules.h"
+#include "net_rules.h"
+#include "policy_rules.h"
 
 // path_rules: two path buffers (root and target, current and next, one name), the folded segment being
 // built and the joined folded text that a verdict reads.
@@ -22,3 +24,15 @@ uint8_t *pr_addr_a(void) { return pr_buf_a; }
 uint8_t *pr_addr_b(void) { return pr_buf_b; }
 uint8_t *pr_addr_seg(void) { return pr_buf_seg; }
 uint8_t *pr_addr_joined(void) { return pr_buf_joined; }
+
+// net_rules: the Host or Origin text.
+static uint8_t nr_buf_text[NR_TEXT_MAX];
+uint8_t *nr_addr_text(void) { return nr_buf_text; }
+
+// policy_rules: the start of a file, the NUL-ended names of a directory listing, a model name or an environment value.
+static uint8_t po_buf_head[PO_HEAD_MAX];
+static uint8_t po_buf_list[PO_LIST_MAX];
+static uint8_t po_buf_text[PO_TEXT_MAX];
+uint8_t *po_addr_head(void) { return po_buf_head; }
+uint8_t *po_addr_list(void) { return po_buf_list; }
+uint8_t *po_addr_text(void) { return po_buf_text; }

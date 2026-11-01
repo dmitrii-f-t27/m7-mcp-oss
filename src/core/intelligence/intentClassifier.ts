@@ -1,5 +1,6 @@
 // Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import { createLogger } from '../utils/logger.js';
+import { remoteClassification } from '../../rules/policyRules.js';
 const log = createLogger('[intentClassifier]');
 /**
  * M7 v3.5 - LLM Intent Classifier with Pattern Selection
@@ -217,9 +218,10 @@ const SYSTEM_PROMPT = `Ты M7 Intent Classifier. Анализируй зада�
  * The task text leaves the machine only when the user sets
  * M7_ALLOW_REMOTE_CLASSIFICATION=true. Any other value, or no value, keeps it local.
  * Read on every call, so a change of the environment takes effect at once.
+ * The comparison is in specs/policy_rules.t27; a failing backend keeps it local.
  */
 export function isRemoteClassificationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.M7_ALLOW_REMOTE_CLASSIFICATION === 'true';
+  return remoteClassification(env.M7_ALLOW_REMOTE_CLASSIFICATION);
 }
 
 /**

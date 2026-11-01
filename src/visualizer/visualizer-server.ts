@@ -1,5 +1,6 @@
 // Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import { createLogger } from '../core/utils/logger.js';
+import { hostAllowed, originAllowed } from '../rules/netRules.js';
 const log = createLogger('[Visualizer]');
 /**
  * M7 v3.0 - Visualizer Server
@@ -32,20 +33,17 @@ import {
  * in the user's browser from reaching it:
  *  - Host stops DNS rebinding (a foreign name that resolves to 127.0.0.1);
  *  - Origin stops cross-site WebSocket connections.
- * They are small and pure on purpose: they have no state and no I/O.
+ * They are small and pure on purpose: they have no state and no I/O. The rules are written in t27
+ * (specs/net_rules.t27) and run as WebAssembly; if the wasm fails, they refuse.
  */
 export const VISUALIZER_BIND_HOST = '127.0.0.1';
-
-const LOOPBACK_NAMES = ['127.0.0.1', 'localhost'];
 
 /**
  * Host header of an HTTP request. Allowed: `127.0.0.1:<httpPort>` and
  * `localhost:<httpPort>` (name in any letter case). A missing header is refused.
  */
 export function isHostAllowed(hostHeader: string | undefined, httpPort: number): boolean {
-  if (typeof hostHeader !== 'string') return false;
-  const host = hostHeader.toLowerCase();
-  return LOOPBACK_NAMES.some((name) => host === `${name}:${httpPort}`);
+  return hostAllowed(hostHeader, httpPort);
 }
 
 /**
@@ -55,9 +53,7 @@ export function isHostAllowed(hostHeader: string | undefined, httpPort: number):
  * other value, including an empty one and `null`, is refused.
  */
 export function isOriginAllowed(origin: string | undefined, httpPort: number): boolean {
-  if (origin === undefined) return true;
-  const value = origin.toLowerCase();
-  return LOOPBACK_NAMES.some((name) => value === `http://${name}:${httpPort}`);
+  return originAllowed(origin, httpPort);
 }
 
 // ============================================

@@ -1,6 +1,7 @@
 // Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 import { constants as fsConstants, promises as fs } from 'fs';
 import { resolveContainedEntry } from '../security/pathGuard.js';
+import { hasMarker, managedState, syncAction, writeAction } from '../../rules/policyRules.js';
 
 /**
  * Rules for writing into a user's project (SEC-2).
@@ -10,7 +11,9 @@ import { resolveContainedEntry } from '../security/pathGuard.js';
  * Everything else is the user's file: M7 skips it. Most tools list the skipped file in
  * their answer; a skipped memory-bank/activeContext.md only gets a debug log line.
  *
- * The decision rules below are pure (no I/O). The functions at the end do the I/O.
+ * The decision rules below are pure (no I/O). They are written in t27 (specs/policy_rules.t27) and run as
+ * WebAssembly; if the wasm fails they refuse (no marker, state 'foreign', write and sync 'skip'). The
+ * functions at the end do the I/O.
  */
 
 /** Written into templates M7 appends to or rewrites later. */
@@ -30,21 +33,17 @@ export type ManagedSyncAction = 'sync' | 'skip';
 
 /** True when the marker lies fully inside the first MANAGED_SCAN_BYTES bytes of `content`. */
 export function hasManagedMarker(content: string | Buffer): boolean {
-  const bytes = typeof content === 'string' ? Buffer.from(content, 'utf8') : content;
-  return bytes.subarray(0, MANAGED_SCAN_BYTES).includes(M7_MANAGED_MARKER);
+  return hasMarker(content);
 }
 
 /** `head` is the start of the file, or null when the file does not exist. */
 export function managedStateOf(head: Buffer | null): ManagedState {
-  if (head === null) return 'absent';
-  return hasManagedMarker(head) ? 'managed' : 'foreign';
+  return managedState(head);
 }
 
 /** What M7 may do with a file in this state. */
 export function managedWriteAction(state: ManagedState): ManagedWriteAction {
-  if (state === 'absent') return 'create';
-  if (state === 'managed') return 'update';
-  return 'skip';
+  return writeAction(state);
 }
 
 /**
@@ -52,7 +51,7 @@ export function managedWriteAction(state: ManagedState): ManagedWriteAction {
  * only a file M7 manages is changed. A missing file is not created.
  */
 export function managedSyncAction(state: ManagedState): ManagedSyncAction {
-  return state === 'managed' ? 'sync' : 'skip';
+  return syncAction(state);
 }
 
 // ---------------------------------------------------------------------------

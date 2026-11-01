@@ -23,6 +23,46 @@ export function putText(mem: Uint8Array, ptr: number, cap: number, s: string): n
   return read < s.length ? -1 : written;
 }
 
+/**
+ * Like putText, but a text that cannot be written throws: a lone surrogate (`encodeInto` would write U+FFFD
+ * and two different texts could become equal) or a text over `cap` bytes. Inside callRules a throw is the
+ * refusing value of the rule.
+ */
+export function putTextOrThrow(mem: Uint8Array, ptr: number, cap: number, text: string): number {
+  if (!isWellFormedText(text)) throw new RangeError('text with a lone surrogate');
+  const length = putText(mem, ptr, cap, text);
+  if (length < 0) throw new RangeError(`text over ${cap} bytes`);
+  return length;
+}
+
+/**
+ * Copy the first `cap` bytes of `bytes` (all of them if there are fewer) to `ptr` and return the true length of
+ * `bytes`. For a rule that looks at the start of a long content and decides the size of its window itself.
+ */
+export function putPrefix(mem: Uint8Array, ptr: number, cap: number, bytes: Uint8Array): number {
+  if (!Number.isInteger(ptr) || !Number.isInteger(cap) || ptr < 0 || cap < 0 || ptr + cap > mem.length) throw new RangeError('buffer out of range');
+  mem.set(bytes.subarray(0, cap), ptr);
+  return bytes.length;
+}
+
+/**
+ * Write the names one after the other, each followed by a NUL byte, and return the length. Throws for a name
+ * with a lone surrogate and when the joined text would be over `cap` bytes. Each name takes at least one byte,
+ * so the loop ends after at most `cap + 1` names.
+ */
+export function putNulList(mem: Uint8Array, ptr: number, cap: number, names: readonly string[]): number {
+  if (!Number.isInteger(ptr) || !Number.isInteger(cap) || ptr < 0 || cap < 0 || ptr + cap > mem.length) throw new RangeError('buffer out of range');
+  let used = 0;
+  for (const name of names) {
+    if (!isWellFormedText(name)) throw new RangeError('name with a lone surrogate');
+    const { read, written } = encoder.encodeInto(name, mem.subarray(ptr + used, ptr + cap));
+    if (read < name.length || used + written + 1 > cap) throw new RangeError(`names over ${cap} bytes`);
+    mem[ptr + used + written] = 0;
+    used += written + 1;
+  }
+  return used;
+}
+
 // tsconfig targets ES2022; isWellFormed and toWellFormed are ES2024 (Node 22 has them).
 type WellFormed = { isWellFormed(): boolean; toWellFormed(): string };
 
