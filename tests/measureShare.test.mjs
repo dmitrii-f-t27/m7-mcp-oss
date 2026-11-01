@@ -323,6 +323,16 @@ describe('the real repository', () => {
     assert.equal(t.decisions + t.regexLiterals + t.transforms, t.points);
   });
 
+  it('shareNumbers names the three boundary files apart and counts them in allIn', T, () => {
+    const n = shareNumbers({ repo: ROOT, rev: 'WORKTREE' });
+    const r = measure({ repo: ROOT, rev: 'WORKTREE' });
+    assert.equal(n.boundaryFiles.files, 3, 'src/rules/wasm.ts, src/rules/marshal.ts, src/rules/generated/constants.ts');
+    assert.deepEqual(n.boundaryFiles, { files: r.boundaryFiles.files, lines: r.boundaryFiles.codeLines, points: r.boundaryFiles.points });
+    assert.ok(n.boundaryFiles.lines > 0 && n.boundaryFiles.points > 0, JSON.stringify(n.boundaryFiles));
+    assert.equal(n.allIn, shareOf(n.base, n.now + n.boundaryFiles.points));
+    assert.ok(n.allIn < shareOf(n.base, n.now));
+  });
+
   it('specs/MOVED.tsv has the header and every row passes the four rules', () => {
     const text = readFileSync(path.join(ROOT, 'specs', 'MOVED.tsv'), 'utf8');
     assert.equal(text.split('\n').find(l => !l.startsWith('#')), 'spec_fn\tsource_file\tsource_symbol\tbase_rev\toracle_file\ttest_file');
@@ -600,6 +610,28 @@ describe('shareNumbers', () => {
   it('refuses a base revision that is not in the repository', () => {
     const { dir, rev } = movedRepo();
     assert.throws(() => shareNumbers({ repo: dir, rev, baseRev: 'deadbee' }), /deadbee/);
+  });
+
+  it('has no boundary file and an allIn equal to the plain share when the repository holds none', () => {
+    const { dir, sha, rev } = movedRepo();
+    const n = shareNumbers({ repo: dir, rev, baseRev: sha });
+    assert.deepEqual(n.boundaryFiles, { files: 0, lines: 0, points: 0 });
+    assert.equal(n.allIn, shareOf(n.base, n.now));
+  });
+
+  it('exposes the boundary files apart, and allIn is the share with their points counted', () => {
+    const plain = movedRepo();
+    const without = shareNumbers({ repo: plain.dir, rev: plain.rev, baseRev: plain.sha });
+    const { dir, sha, rev } = movedRepo({ mutate: d => writeFiles(d, { 'src/rules/wasm.ts': 'export function w(n: number) {\n  return n > 1 && n < 5 ? 1 : 0;\n}\n' }) });
+    const n = shareNumbers({ repo: dir, rev, baseRev: sha });
+    const r = measure({ repo: dir, rev });
+    assert.deepEqual(n.boundaryFiles, { files: 1, lines: r.boundaryFiles.codeLines, points: 2 }, '&& and ?: in the boundary file');
+    assert.ok(n.boundaryFiles.lines > 0);
+    assert.equal(n.now, without.now, 'the points of a boundary file are not in the points now');
+    assert.equal(n.codeLines, without.codeLines, 'and its lines are not in the code lines');
+    assert.equal(n.allIn, shareOf(n.base, n.now + n.boundaryFiles.points));
+    assert.ok(n.allIn < shareOf(n.base, n.now), 'counting the boundary files lowers the share');
+    assert.equal(shareOf(n.base, n.now), without.allIn);
   });
 });
 

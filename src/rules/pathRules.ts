@@ -41,7 +41,8 @@ class PathRefusal extends Error {
   }
 }
 
-const decoder = new TextDecoder('utf-8', { fatal: true });
+// ignoreBOM: a text that starts with U+FEFF keeps it (the default decoder would drop it as a byte order mark).
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** Write `text` at `ptr`. Returns its length in bytes. Throws PathRefusal for a lone surrogate or text over `cap`. */
 function putPath(mem: Uint8Array, ptr: number, text: string, cap: number = PR_PATH_MAX): number {

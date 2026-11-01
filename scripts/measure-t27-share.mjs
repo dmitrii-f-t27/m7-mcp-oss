@@ -664,6 +664,10 @@ function specCounts(repo, rev) {
  *   added      now - (base - moved): points that are in the TypeScript now and were not in the base
  *   specs, specFns, t27Lines   the t27 specs at `rev`
  *   codeLines  code lines of the TypeScript at `rev`; classes  its lines per class
+ *   boundaryFiles  { files, lines, points }: the boundary files (src/rules/wasm.ts, marshal.ts, generated/), which
+ *              are measured apart: their code lines and logic points are not in `now`, `codeLines` or `classes`
+ *   allIn      the share with the points of the boundary files counted as TypeScript:
+ *              (base - (now + boundaryFiles.points)) / base. `shareOf(base, now)` leaves them out.
  * Throws when `baseRev` is not in the repository or specs/MOVED.tsv is missing at `rev`.
  */
 export function shareNumbers({ repo = DEFAULT_REPO, rev = 'HEAD', baseRev = BASE_REV, opt = DEFAULT_OPT } = {}) {
@@ -672,6 +676,7 @@ export function shareNumbers({ repo = DEFAULT_REPO, rev = 'HEAD', baseRev = BASE
   const base = measure({ repo, rev: baseRev, opt });
   const moved = movedPoints(checkMoved({ repo, rev, opt }));
   const t = now.total;
+  const boundaryFiles = { files: now.boundaryFiles.files, lines: now.boundaryFiles.codeLines, points: now.boundaryFiles.points };
   return {
     base: base.total.points,
     now: t.points,
@@ -680,6 +685,8 @@ export function shareNumbers({ repo = DEFAULT_REPO, rev = 'HEAD', baseRev = BASE
     ...specCounts(repo, rev),
     codeLines: t.codeLines,
     classes: { type: t.type, data: t.data, text: t.text, boundary: t.boundary, glue: t.glue, logic: t.logic },
+    boundaryFiles,
+    allIn: shareOf(base.total.points, t.points + boundaryFiles.points),
   };
 }
 

@@ -280,6 +280,32 @@ describe('pushRefusal and pullRefusal against the old pathGuard.ts', () => {
     count('foldSegments', n);
     count('trimAllShortStrings', all.length);
   });
+
+  it('a U+FEFF at the start of a segment is kept: the decoder must not take it for a byte order mark', () => {
+    const rnd = mulberry32(SEED + 2);
+    const paths = ['\ufeffa', '\ufeff', '\ufeff.', '\ufeffa. ', '\ufeff\ufeff', 'a/\ufeff.env', '\ufefffoo/\ufeffbar', '/\ufeffx/y', 'q\\\ufeffz', '\ufeff.git/\ufeff.env'];
+    for (let i = 0; i < 3000; i++) {
+      const p = genPath(rnd);
+      paths.push(p.split(/([/\\])/).map(part => (rnd() < 0.5 ? `\ufeff${part}` : part)).join(''));
+    }
+    let n = 0;
+    paths.forEach((p, i) => {
+      if (bytes(p) > 4096) return;
+      same('pathSegments (BOM)', i, p, JSON.stringify(guard.pathSegments(p)), JSON.stringify(legacy.pathSegments(p)));
+      same('push (BOM)', i, p, guard.pushRefusal(p), legacy.pushRefusal(p));
+      same('pull (BOM)', i, p, guard.pullRefusal(p), legacy.pullRefusal(p));
+      for (const seg of legacy.pathSegments(p)) {
+        same('trim (BOM)', i, seg, guard.trimTrailingDotSpace(seg), legacy.trimTrailingDotSpace(seg));
+        same('foldName (BOM)', i, seg, guard.foldName(seg), legacy.foldName(seg));
+        n++;
+      }
+      onPlatform('darwin', () => same('relativeWithin (BOM)', i, p, guard.relativeWithin('/r', `/r/${p}`), legacy.relativeWithin('/r', `/r/${p}`)));
+    });
+    assert.equal(guard.pathSegments('\ufeffa/b')[0], '\ufeffa');
+    assert.equal(guard.trimTrailingDotSpace('\ufeffa. '), '\ufeffa');
+    onPlatform('darwin', () => assert.equal(guard.relativeWithin('/a', '/a/\ufeffx'), '\ufeffx'));
+    count('bomSegments', n);
+  });
 });
 
 // ---------------------------------------------------------------------------

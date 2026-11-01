@@ -11,8 +11,10 @@
  *   and give the right answer to a few known calls.
  * - Loading is synchronous and lazy, because `pushRefusal` and `selectProjectSource` are synchronous.
  *   `assertRulesLoaded()` at start-up (src/index.ts) makes a bad install stop the server before it serves.
- * - A failed load stays failed. After a trap the instance is dropped (module state may be half written)
- *   and the next call makes a fresh one; the call that trapped is not retried.
+ * - A failed load stays failed. After a trap, a `WebAssembly.RuntimeError`, the instance is dropped (module state
+ *   may be half written) and the next call makes a fresh one; the call that trapped is not retried. Any other
+ *   throw, such as a refusal of the facade before the call (a text over its limit), returns the refusing value
+ *   and keeps the instance: the wasm was not entered, so a refused input must not cost a new instance.
  * - `memory.buffer` is read again on every call: `memory.grow` detaches the old one.
  */
 
@@ -255,7 +257,8 @@ export function assertRulesLoaded(): void {
 
 /**
  * Run `call` on the rules. Any throw (a trap, a refused argument, an unavailable wasm) returns `onFail`,
- * the refusing value of the rule, and drops the instance. The call is not retried.
+ * the refusing value of the rule. A trap (`WebAssembly.RuntimeError`) also drops the instance; a refusal does
+ * not. The call is not retried.
  */
 export function callRules<T>(call: (x: RulesExports, mem: Uint8Array) => T, onFail: T): T {
   let x: RulesExports;
@@ -266,8 +269,8 @@ export function callRules<T>(call: (x: RulesExports, mem: Uint8Array) => T, onFa
   }
   try {
     return call(x, new Uint8Array(x.memory.buffer));
-  } catch {
-    instance = null;
+  } catch (e) {
+    if (e instanceof WebAssembly.RuntimeError) instance = null;
     return onFail;
   }
 }
@@ -278,7 +281,7 @@ export function callRulesOrThrow<T>(call: (x: RulesExports, mem: Uint8Array) => 
   try {
     return call(x, new Uint8Array(x.memory.buffer));
   } catch (e) {
-    instance = null;
+    if (e instanceof WebAssembly.RuntimeError) instance = null;
     throw unavailable('a rules call failed', e);
   }
 }

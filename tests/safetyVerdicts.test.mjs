@@ -12,6 +12,9 @@
  * - The tool answers BLOCK for the sudo/admin text.
  * - Harmless text that sits near the new patterns still answers pass. These cases are
  *   exact: `pass`, never "not block".
+ * - Two surface patterns were cubic in the length of the text (a few KB of digits, or a repeated phrase, held up
+ *   the scan for seconds to minutes). Each was rewritten to a form with the same `.test` answer, which a seeded
+ *   differential test against the old pattern shows, and a timing test in a child process pins.
  *
  * The five engine tests themselves live in src/core/safety/__tests__/stress.test.ts.
  *
@@ -33,6 +36,7 @@ const load = file => import(pathToFileURL(file).href);
 
 const { SafetyEngine, SafetyPipeline } = await load(path.join(SAFETY_DIST, 'index.js'));
 const { safetyTool } = await load(path.join(DIST, 'core', 'tools', 'safetyTool.js'));
+const { TRAP_CATALOG } = await load(path.join(SAFETY_DIST, 'trapCatalog.js'));
 
 const throwing = () => { throw new Error('stub: scan failed'); };
 
@@ -159,3 +163,98 @@ for (const text of HARMLESS) {
     assert.equal(result.action, 'pass', `blockedBy=${result.metadata.blockedBy}, details=${JSON.stringify(result.details?.verdicts?.filter(v => v.triggered) ?? result.details?.violations)}`);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Two cubic surface patterns
+// ---------------------------------------------------------------------------
+
+const SEED = Number(process.env.M7_RULES_SEED ?? 27);
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = a;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const surface = description => {
+  const found = TRAP_CATALOG.flatMap(trap => trap.surfacePatterns).filter(s => s.description === description);
+  assert.equal(found.length, 1, `one surface pattern is called "${description}"`);
+  return found[0].pattern;
+};
+
+/** `count` strings of up to `max` pieces from `pieces`, seeded. */
+function seeded(pieces, count, max, seedOffset) {
+  const rnd = mulberry32(SEED + seedOffset);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    let s = '';
+    for (let n = Math.floor(rnd() * (max + 1)); n > 0; n--) s += pieces[Math.floor(rnd() * pieces.length)];
+    out.push(s);
+  }
+  return out;
+}
+
+test('the leetspeak pattern answers like the old /[0-9@$!]{3,}.*[a-z]/i on 300000 seeded strings', { timeout: 120_000 }, () => {
+  const old = /[0-9@$!]{3,}.*[a-z]/i;
+  const now = surface('leetspeak indicators');
+  const pieces = ['1', '2', '9', '0', '@', '$', '!', '!!', '123', 'a', 'Z', 'z', 'k', '\u212a', 'e\u0301', ' ', '.', '-', '\n', '\r', '\u2028', '\u2029', '\t', 'caf\u00e9', '\u{1f600}'];
+  let yes = 0;
+  seeded(pieces, 300_000, 14, 10).forEach((s, i) => {
+    const want = old.test(s);
+    if (want) yes++;
+    if (now.test(s) !== want) assert.fail(`[seed ${SEED}] case ${i}: ${JSON.stringify(s)}: old ${want}, now ${!want}`);
+  });
+  assert.ok(yes > 20_000 && yes < 280_000, `the generator hits both answers (${yes} true of 300000)`);
+});
+
+test('the "force safe output" pattern answers like the old /output.*(safe|clean|harmless).*regardless/i on 300000 seeded strings', { timeout: 120_000 }, () => {
+  const old = /output.*(safe|clean|harmless).*regardless/i;
+  const now = surface('force safe output');
+  const pieces = ['output', 'OUTPUT', 'Output', 'safe', 'SAFE', 'clean', 'harmless', 'regardless', 'less', 'harm', 'regard', 'outpu', 'put', 'harmlessafe', 'cleanclean',
+    'safesafe', 'x', 'ab', ' ', '.', '\n', '\r', '\u2028', '\u2029', 'output safe regardless', 'k', '\u212a', 'safely', 'unsafe', 'caf\u00e9'];
+  let yes = 0;
+  seeded(pieces, 300_000, 12, 20).forEach((s, i) => {
+    const want = old.test(s);
+    if (want) yes++;
+    if (now.test(s) !== want) assert.fail(`[seed ${SEED}] case ${i}: ${JSON.stringify(s)}: old ${want}, now ${!want}`);
+  });
+  assert.ok(yes > 3_000 && yes < 290_000, `the generator hits both answers (${yes} true of 300000)`);
+});
+
+/** Run the scan of `text` in a child process that is killed after `limitMs`. */
+function scanInChild(text, limitMs) {
+  const code = `
+    import { pathToFileURL } from 'node:url';
+    const { SafetyEngine } = await import(pathToFileURL(${JSON.stringify(path.join(SAFETY_DIST, 'index.js'))}).href);
+    const text = ${JSON.stringify(text)};
+    const t0 = performance.now();
+    const result = new SafetyEngine().checkInput(text);
+    console.log(JSON.stringify({ ms: Math.round(performance.now() - t0), action: result.action, length: text.length }));
+  `;
+  const t0 = Date.now();
+  const run = spawnSync(process.execPath, ['--max-old-space-size=512', '--input-type=module', '-e', code], {
+    cwd: ROOT, env: isolatedEnv(ROOT, { NODE_TEST_CONTEXT: undefined }), encoding: 'utf8', timeout: limitMs, killSignal: 'SIGKILL',
+  });
+  return { run, wall: Date.now() - t0 };
+}
+
+test('6000 digits do not hold up the scan (the old leetspeak pattern took about 30 s on them)', { timeout: 120_000 }, () => {
+  const { run, wall } = scanInChild('1'.repeat(6000), 20_000);
+  assert.equal(run.signal, null, `the scan was still running after ${wall} ms`);
+  assert.equal(run.status, 0, run.stderr);
+  const answer = JSON.parse(run.stdout.trim());
+  assert.ok(answer.ms < 10_000, `${answer.ms} ms`);
+  assert.equal(answer.length, 6000);
+});
+
+test('36000 characters of "output safe " do not hold up the scan (the old pattern took about 40 s on them)', { timeout: 120_000 }, () => {
+  const { run, wall } = scanInChild('output safe '.repeat(3000), 20_000);
+  assert.equal(run.signal, null, `the scan was still running after ${wall} ms`);
+  assert.equal(run.status, 0, run.stderr);
+  const answer = JSON.parse(run.stdout.trim());
+  assert.ok(answer.ms < 10_000, `${answer.ms} ms`);
+  assert.equal(answer.length, 36000);
+});

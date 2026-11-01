@@ -206,14 +206,61 @@ const stub = overrides => ({
 });
 
 describe('callRules and callRulesOrThrow', () => {
-  it('a throwing stub makes callRules return onFail, and the next call gets a fresh instance', () => {
-    rules.setRulesExportsForTests(stub({ by_fold_ascii() { throw new Error('trap'); } }));
+  it('a stub that throws a WebAssembly.RuntimeError (a trap) makes callRules return onFail, and the next call gets a fresh instance', () => {
+    rules.setRulesExportsForTests(stub({ by_fold_ascii() { throw new WebAssembly.RuntimeError('unreachable'); } }));
     const seen = [];
     assert.equal(rules.callRules(x => { seen.push(x); return x.by_fold_ascii(65); }, -1), -1);
     assert.equal(rules.callRules(x => { seen.push(x); return x.by_fold_ascii(65); }, -1), 97, 'a fresh instance from the file answers');
     assert.equal(rules.callRules(x => { seen.push(x); return 1; }, -1), 1);
     assert.notEqual(seen[0], seen[1], 'the stub was dropped');
     assert.equal(seen[1], seen[2], 'a good instance is kept');
+  });
+
+  it('a throw that is not a trap returns onFail and keeps the instance', () => {
+    const kept = stub({ by_fold_ascii() { throw new Error('refused'); }, by_is_sep: () => 1 });
+    rules.setRulesExportsForTests(kept);
+    const seen = [];
+    for (const error of [new Error('refused'), new RangeError('not a u8'), new TypeError('bad'), 'a string', null]) {
+      assert.equal(rules.callRules(x => { seen.push(x); throw error; }, -1), -1, String(error));
+    }
+    assert.equal(rules.callRules(x => { seen.push(x); return x.by_is_sep(47, 0); }, -1), 1, 'the same instance still answers');
+    assert.ok(seen.every(x => x === kept), 'the instance was never replaced');
+    assert.throws(() => rules.callRulesOrThrow(() => { throw new RangeError('not a u8'); }), rules.RulesUnavailableError, 'callRulesOrThrow still refuses');
+    assert.equal(rules.callRules(x => x === kept, false), true, 'and keeps the instance too');
+    rules.setRulesExportsForTests(null);
+  });
+
+  it('repeated refused inputs make one instance, not one per call', async () => {
+    rules.setRulesExportsForTests(null);
+    const Original = WebAssembly.Instance;
+    let made = 0;
+    WebAssembly.Instance = class extends Original {
+      constructor(...args) {
+        made++;
+        super(...args);
+      }
+    };
+    try {
+      const net = await import('../dist/rules/netRules.js');
+      const policy = await import('../dist/rules/policyRules.js');
+      const path = await import('../dist/rules/pathRules.js');
+      const mesh = await import('../dist/rules/meshRules.js');
+      assert.equal(net.originAllowed('http://localhost:80', 80), true);
+      assert.equal(made, 1, 'the first call makes the instance');
+      for (let i = 0; i < 10; i++) {
+        assert.equal(net.originAllowed(`http://localhost:${i}/${'a'.repeat(300)}`, 80), false, 'an Origin over 256 bytes');
+        assert.equal(net.hostAllowed('h'.repeat(300), 80), false, 'a Host over 256 bytes');
+        assert.equal(policy.modelTakesTemp('m'.repeat(300)), false, 'a model name over 256 bytes');
+        assert.equal(path.insideWith('/a', `/a/${'b'.repeat(5000)}`, false), false, 'a path over 4096 bytes');
+        assert.equal(path.insideWith('/a', '/a/\ud800', false), false, 'a lone surrogate in a path');
+        assert.match(mesh.inlineMarked('x', -1), /rules unavailable/, 'a max that is not a whole number');
+        assert.equal(net.originAllowed('http://localhost:80', 80), true, 'a good call in between');
+      }
+      assert.equal(made, 1, 'seventy refused or good calls, one instance');
+    } finally {
+      WebAssembly.Instance = Original;
+      rules.setRulesExportsForTests(null);
+    }
   });
 
   it('the call that trapped is not retried', () => {
@@ -240,6 +287,19 @@ describe('callRules and callRulesOrThrow', () => {
   it('callRulesOrThrow throws RulesUnavailableError when the call throws, and works again after', () => {
     assert.throws(() => rules.callRulesOrThrow(() => { throw new Error('trap'); }), rules.RulesUnavailableError);
     assert.equal(rules.callRulesOrThrow(x => x.by_fold_ascii(67)), 99);
+  });
+
+  it('callRulesOrThrow drops the instance on a WebAssembly.RuntimeError, not on another throw', () => {
+    const seen = [];
+    rules.callRulesOrThrow(x => seen.push(x));
+    assert.throws(() => rules.callRulesOrThrow(x => { seen.push(x); throw new Error('refused'); }), rules.RulesUnavailableError);
+    rules.callRulesOrThrow(x => seen.push(x));
+    assert.throws(() => rules.callRulesOrThrow(x => { seen.push(x); throw new WebAssembly.RuntimeError('unreachable'); }), rules.RulesUnavailableError);
+    rules.callRulesOrThrow(x => seen.push(x));
+    assert.equal(seen[0], seen[1], 'a refusal keeps the instance');
+    assert.equal(seen[1], seen[2]);
+    assert.equal(seen[2], seen[3]);
+    assert.notEqual(seen[3], seen[4], 'a trap replaces it');
   });
 
   it('memory.buffer is read again on every call', () => {
@@ -621,6 +681,48 @@ describe('scripts/make-oracle.mjs', () => {
     assert.match(readFileSync(out, 'utf8'), /export function pure/);
     const bad = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'make-oracle.mjs'), rev, 'src/legacy.ts'], { encoding: 'utf8' });
     assert.equal(bad.status, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tests/oracles are what make-oracle makes at c41f8ce
+// ---------------------------------------------------------------------------
+
+describe('tests/oracles', () => {
+  const ORACLE_REV = 'c41f8ce';
+  // Oracle file -> [source file at ORACLE_REV, the --symbols it was made with]. A new oracle needs a row here.
+  const ORACLES = {
+    'anthropicParamsLegacy.mjs': ['src/hive/api/anthropicParams.ts', ['modelTakesTemperature']],
+    'initProjectLegacy.mjs': ['src/core/tools/initProject.ts', ['NOT_PROJECT_FILES', 'isEmptyListing', 'needsInitNoteFor']],
+    'intentClassifierLegacy.mjs': ['src/core/intelligence/intentClassifier.ts', ['isRemoteClassificationEnabled']],
+    'pathGuardLegacy.mjs': ['src/core/security/pathGuard.ts', [
+      'REFUSE_NUL', 'REFUSE_SECRET', 'REFUSE_CONTROL', 'SECRET_NAMES', 'SECRET_PREFIXES', 'SECRET_SUFFIXES', 'CONTROL_NAMES', 'isSeparator', 'foldAscii',
+      'foldUnicode', 'trimTrailingDotSpace', 'foldName', 'pathSegments', 'isSecretSegment', 'isControlSegment', 'pushRefusal', 'pullRefusal',
+      'isInsideWith', 'isInside', 'relativeWithin', 'linkLeavesRoot', 'isPlainEntryName']],
+    'peerTextLegacy.mjs': ['src/mesh/peerText.ts', [
+      'PEER_HEADER', 'isControl', 'unitWidth', 'toText', 'scrub', 'peerLine', 'peerBlock', 'cutText', 'wrapMarked', 'untrusted', 'untrustedOr', 'untrustedId',
+      'untrustedList', 'untrustedBlock', 'plainNumber', 'withPeerHeader']],
+    'projectPathLegacy.mjs': ['src/core/utils/projectPath.ts', ['isBareHomeDirectory', 'isUnsafeFallbackPath', 'selectProjectSource', 'needsProjectSwitch', 'isValidProjectDirectory']],
+    'safeWriteLegacy.mjs': ['src/core/utils/safeWrite.ts', ['M7_MANAGED_MARKER', 'MANAGED_SCAN_BYTES', 'hasManagedMarker', 'managedStateOf', 'managedWriteAction', 'managedSyncAction']],
+    'visualizerRulesLegacy.mjs': ['src/visualizer/visualizer-server.ts', ['LOOPBACK_NAMES', 'isHostAllowed', 'isOriginAllowed']],
+  };
+
+  it('every file in tests/oracles has a row in this test, and every row has a file', () => {
+    assert.deepEqual(readdirSync(path.join(ROOT, 'tests', 'oracles')).sort(), Object.keys(ORACLES).sort());
+  });
+
+  it(`each oracle equals what make-oracle makes from its source at ${ORACLE_REV}, byte for byte`, T, t => {
+    const have = spawnSync('git', ['cat-file', '-e', `${ORACLE_REV}^{commit}`], { cwd: ROOT, encoding: 'utf8' });
+    if (have.status !== 0) {
+      t.skip(`${ORACLE_REV} is not in the history of this clone (a shallow clone or an unpacked package), so the oracles cannot be made again`);
+      return;
+    }
+    const different = [];
+    for (const [file, [src, symbols]] of Object.entries(ORACLES)) {
+      const want = makeOracle({ repo: ROOT, rev: ORACLE_REV, src, symbols });
+      if (readFileSync(path.join(ROOT, 'tests', 'oracles', file), 'utf8') !== want) different.push(file);
+    }
+    assert.deepEqual(different, [], `an oracle was edited by hand, or made from another commit: ${different.join(', ')}. Make it again with scripts/make-oracle.mjs ${ORACLE_REV} <src> tests/oracles/<file> --symbols <names>`);
   });
 });
 

@@ -425,6 +425,19 @@ describe('New behaviour: lone surrogates, bad max, a failing backend', () => {
     assert.equal(under(brokenRules({ mr_refusal: () => OUT_MAX + 5, mr_scrub: () => -2 }), () => pt.peerLine('abc')), UNAVAILABLE, 'a refusal text that does not fit');
   });
 
+  it('the answer of the rules is returned byte for byte: a U+FEFF at its start is kept, and the real rules never make one', () => {
+    // The real rules cannot show a difference: U+FEFF is a control, so scrub turns it into a space, and the marked
+    // answers start with "<" and the refusal text with "[". A stub can: it answers bytes EF BB BF 61.
+    const bom = brokenRules({ mr_scrub: (_in, _len, _keep, out) => { new Uint8Array(bom.memory.buffer).set([0xef, 0xbb, 0xbf, 0x61], out); return 4; } });
+    assert.equal(under(bom, () => pt.peerLine('x')), '\ufeffa', 'a leading byte order mark is not dropped');
+    for (const text of ['\ufeffabc', '\ufeff', 'a\ufeffb', '\ufeff<<<']) {
+      assert.equal(pt.peerLine(text), legacy.peerLine(text.toWellFormed()), JSON.stringify(text));
+      assert.equal(pt.untrusted(text), legacy.untrusted(text.toWellFormed()), JSON.stringify(text));
+      assert.equal(pt.untrustedBlock(text), legacy.untrustedBlock(text.toWellFormed()), JSON.stringify(text));
+    }
+    assert.equal(pt.peerLine('\ufeffabc'), ' abc');
+  });
+
   it('a backend that traps once does not poison the next call: the instance is replaced', () => {
     assert.equal(under(brokenRules(), () => pt.peerLine('abc')), UNAVAILABLE);
     assert.equal(pt.peerLine('a\nb'), 'a b');

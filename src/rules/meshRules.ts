@@ -27,7 +27,8 @@ import type { RulesExports } from './wasm.js';
 /** The answer when the rules cannot be used. */
 export const REFUSED_UNAVAILABLE = '[peer text refused: rules unavailable]';
 
-const decoder = new TextDecoder('utf-8', { fatal: true });
+// ignoreBOM: the answer is the bytes of the rules as they are; a leading U+FEFF is not dropped.
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** The `n` bytes at `out` as text. Throws if the rules answered a length that cannot be one, or bytes that are not UTF-8. */
 function answerText(mem: Uint8Array, out: number, n: number): string {

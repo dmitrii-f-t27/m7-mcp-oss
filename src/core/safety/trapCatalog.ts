@@ -257,7 +257,10 @@ const TRAP_J_041: TrapDefinition = {
   surfacePatterns: [
     { pattern: /intent (analysis|graph|system).*(broken|disabled|off)/i, weight: 0.9, description: 'target intent system' },
     { pattern: /safety (system|filter|check).*(broken|disabled|bypass|off)/i, weight: 0.9, description: 'target safety system' },
-    { pattern: /output.*(safe|clean|harmless).*regardless/i, weight: 0.8, description: 'force safe output' },
+    // Same answer as /output.*(safe|clean|harmless).*regardless/i, which backtracks in cubic time. The lookahead takes the
+    // first (safe|clean|harmless) after "output" on the line and the rest goes on from its end (\1\2). A later one could
+    // not help: no alternative contains another, so the first ends first. The lookahead cannot be re-entered.
+    { pattern: /output(?=(.*?)(safe|clean|harmless))\1\2.*regardless/i, weight: 0.8, description: 'force safe output' },
     { pattern: /your (filter|classifier|detector) (is|has been)/i, weight: 0.6, description: 'reference internal system' },
   ],
   discriminate: (a: InputAnalysis) =>
@@ -274,7 +277,8 @@ const TRAP_J_042: TrapDefinition = {
   description: 'Uses character substitution to evade keyword filters',
   surfacePatterns: [
     { pattern: /[\u200b-\u200f\u2060-\u206f\ufeff]/, weight: 0.8, description: 'zero-width chars' },
-    { pattern: /[0-9@$!]{3,}.*[a-z]/i, weight: 0.3, description: 'leetspeak indicators' },
+    // {3}, not {3,}: the same answer (the rest of the run is matched by .*), without the cubic backtracking over the run.
+    { pattern: /[0-9@$!]{3}.*[a-z]/i, weight: 0.3, description: 'leetspeak indicators' },
   ],
   discriminate: (a: InputAnalysis) => {
     const zwCount = (a.raw.match(/[\u200b-\u200f\u2060-\u206f\ufeff]/g) || []).length;
