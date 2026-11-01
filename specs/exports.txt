@@ -9,3 +9,4 @@ pr_addr_a pr_addr_b pr_addr_joined pr_addr_seg
 nr_host_allowed nr_origin_allowed nr_addr_text
 po_has_marker po_managed_state po_write_action po_sync_action po_listing_empty po_needs_init_note
 po_model_takes_temperature po_remote_classification po_addr_head po_addr_list po_addr_text
+mr_is_control mr_scrub mr_inline mr_id mr_block mr_has_fence mr_refusal mr_addr_in mr_addr_out

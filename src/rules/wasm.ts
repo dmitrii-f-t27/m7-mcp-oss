@@ -69,6 +69,16 @@ export interface RulesExports {
   po_needs_init_note(isEmpty: number, hasMemoryBank: number, hasCursorRules: number): number;
   po_model_takes_temperature(model: number, len: number): number;
   po_remote_classification(value: number, len: number): number;
+  // mesh_rules: text goes in at mr_addr_in and the answer comes out at mr_addr_out (specs/mesh_rules.t27).
+  mr_addr_in(): number;
+  mr_addr_out(): number;
+  mr_is_control(code: number, keep: number): number;
+  mr_scrub(input: number, len: number, keep: number, out: number): number;
+  mr_inline(input: number, len: number, max: number, out: number): number;
+  mr_id(input: number, len: number, out: number): number;
+  mr_block(input: number, len: number, out: number): number;
+  mr_has_fence(text: number, len: number): number;
+  mr_refusal(out: number): number;
 }
 
 const REQUIRED_FUNCTIONS = [
@@ -80,6 +90,7 @@ const REQUIRED_FUNCTIONS = [
   'nr_addr_text', 'nr_host_allowed', 'nr_origin_allowed',
   'po_addr_head', 'po_addr_list', 'po_addr_text', 'po_has_marker', 'po_managed_state', 'po_write_action', 'po_sync_action',
   'po_listing_empty', 'po_needs_init_note', 'po_model_takes_temperature', 'po_remote_classification',
+  'mr_addr_in', 'mr_addr_out', 'mr_is_control', 'mr_scrub', 'mr_inline', 'mr_id', 'mr_block', 'mr_has_fence', 'mr_refusal',
 ] as const;
 
 let verifiedModule: WebAssembly.Module | null = null;
@@ -116,6 +127,11 @@ function loadModule(): WebAssembly.Module {
   const imports = WebAssembly.Module.imports(module);
   if (imports.length > 0) throw new RulesUnavailableError(`${file} has imports: ${imports.map(i => `${i.module}.${i.name}`).join(', ')}`);
   return module;
+}
+
+/** The byte at `ptr` in the memory of `x`. */
+function byteAt(x: RulesExports, ptr: number): number {
+  return new Uint8Array(x.memory.buffer)[ptr];
 }
 
 /** Write `bytes` at `ptr` in the memory of `x` and return their count. */
@@ -185,6 +201,21 @@ const KNOWN_ANSWERS: Array<[string, (x: RulesExports) => number, number]> = [
   ['po_model_takes_temperature(sonnet)', x => x.po_model_takes_temperature(x.po_addr_text(), put(x, x.po_addr_text(), 'claude-sonnet-4')), 1],
   ['po_remote_classification("true")', x => x.po_remote_classification(x.po_addr_text(), put(x, x.po_addr_text(), 'true')), 1],
   ['po_remote_classification("TRUE")', x => x.po_remote_classification(x.po_addr_text(), put(x, x.po_addr_text(), 'TRUE')), 0],
+  ['mr_is_control(0x200b)', x => x.mr_is_control(0x200b, 0), 1],
+  ['mr_is_control("a")', x => x.mr_is_control(97, 0), 0],
+  ['mr_is_control(LF, keep)', x => x.mr_is_control(10, 1), 0],
+  ['mr_is_control(LF)', x => x.mr_is_control(10, 0), 1],
+  ['mr_scrub("a<<<b") length', x => x.mr_scrub(x.mr_addr_in(), put(x, x.mr_addr_in(), 'a<<<b'), 0, x.mr_addr_out()), 6],
+  ['mr_scrub("a<<<b") space', x => { x.mr_scrub(x.mr_addr_in(), put(x, x.mr_addr_in(), 'a<<<b'), 0, x.mr_addr_out()); return byteAt(x, x.mr_addr_out() + 3); }, 32],
+  ['mr_scrub(over the limit)', x => x.mr_scrub(x.mr_addr_in(), 3145729, 0, x.mr_addr_out()), -2],
+  ['mr_inline("ab")', x => x.mr_inline(x.mr_addr_in(), put(x, x.mr_addr_in(), 'ab'), -1, x.mr_addr_out()), 8],
+  ['mr_inline("abcd", 2)', x => x.mr_inline(x.mr_addr_in(), put(x, x.mr_addr_in(), 'abcd'), 2, x.mr_addr_out()), 11],
+  ['mr_id("abcd")', x => x.mr_id(x.mr_addr_in(), put(x, x.mr_addr_in(), 'abcd'), x.mr_addr_out()), 13],
+  ['mr_block("a")', x => x.mr_block(x.mr_addr_in(), put(x, x.mr_addr_in(), 'a'), x.mr_addr_out()), 9],
+  ['mr_has_fence("a<<<")', x => x.mr_has_fence(x.mr_addr_in(), put(x, x.mr_addr_in(), 'a<<<')), 1],
+  ['mr_has_fence("a<<")', x => x.mr_has_fence(x.mr_addr_in(), put(x, x.mr_addr_in(), 'a<<')), 0],
+  ['mr_refusal length', x => x.mr_refusal(x.mr_addr_out()), 40],
+  ['mr_refusal first byte', x => { x.mr_refusal(x.mr_addr_out()); return byteAt(x, x.mr_addr_out()); }, 91],
 ];
 
 function instantiate(module: WebAssembly.Module): RulesExports {

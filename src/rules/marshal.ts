@@ -93,6 +93,12 @@ export function checkU8(v: number): number {
   return v;
 }
 
+/** A non-negative `i32` argument: an integer from 0 to 2^31 - 1. */
+export function checkU31(v: number): number {
+  if (!Number.isInteger(v) || v < 0 || v > 2147483647) throw new RangeError(`not a whole number from 0 to 2^31-1: ${String(v)}`);
+  return v;
+}
+
 /** An `i32` argument: an integer from -2^31 to 2^31 - 1. */
 export function checkI32(v: number): number {
   if (!Number.isInteger(v) || v < -2147483648 || v > 2147483647) throw new RangeError(`not an i32: ${String(v)}`);

@@ -12,6 +12,7 @@
 #include "path_rules.h"
 #include "net_rules.h"
 #include "policy_rules.h"
+#include "mesh_rules.h"
 
 // path_rules: two path buffers (root and target, current and next, one name), the folded segment being
 // built and the joined folded text that a verdict reads.
@@ -36,3 +37,10 @@ static uint8_t po_buf_text[PO_TEXT_MAX];
 uint8_t *po_addr_head(void) { return po_buf_head; }
 uint8_t *po_addr_list(void) { return po_buf_list; }
 uint8_t *po_addr_text(void) { return po_buf_text; }
+
+// mesh_rules: the peer text goes in at mr_addr_in (up to MR_TEXT_MAX bytes) and the answer comes out at mr_addr_out
+// (up to MR_OUT_MAX bytes). These two buffers are 3 MiB and 4.5 MiB of the memory of the running server.
+static uint8_t mr_buf_in[MR_TEXT_MAX];
+static uint8_t mr_buf_out[MR_OUT_MAX];
+uint8_t *mr_addr_in(void) { return mr_buf_in; }
+uint8_t *mr_addr_out(void) { return mr_buf_out; }

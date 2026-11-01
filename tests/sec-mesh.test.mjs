@@ -550,9 +550,9 @@ describe('peerText rules', () => {
     assert.equal(peerLine('x y¡zÿ'), 'x y¡zÿ', 'U+00A0 and above stay');
     assert.equal(peerLine('x y‐z'), 'x y‐z', 'U+200A and U+2010 stay');
     assert.equal(peerLine('\u{1F600}\u{1F468}‍\u{1F469}'), '\u{1F600}\u{1F468} \u{1F469}', 'emoji stay; a joiner is a space');
-    // A lone surrogate is passed through, as before, and does not swallow its neighbour.
-    assert.equal(peerLine('a\ud800b'), 'a\ud800b');
-    assert.equal(peerLine('a\udc41b'), 'a\udc41b');
+    // A lone surrogate becomes U+FFFD (the rules work on UTF-8, which cannot carry one) and does not swallow its neighbour.
+    assert.equal(peerLine('a\ud800b'), 'a\ufffdb');
+    assert.equal(peerLine('a\udc41b'), 'a\ufffdb');
   });
 
   // The SECURITY.md promise is that zero-width and bidi marks are cleaned. These invisible code points

@@ -27,3 +27,12 @@ po_listing_empty	src/core/tools/initProject.ts	isEmptyListing	c41f8ce	tests/orac
 po_needs_init_note	src/core/tools/initProject.ts	needsInitNoteFor	c41f8ce	tests/oracles/initProjectLegacy.mjs	tests/rulesPolicy.test.mjs
 po_model_takes_temperature	src/hive/api/anthropicParams.ts	modelTakesTemperature	c41f8ce	tests/oracles/anthropicParamsLegacy.mjs	tests/rulesPolicy.test.mjs
 po_remote_classification	src/core/intelligence/intentClassifier.ts	isRemoteClassificationEnabled	c41f8ce	tests/oracles/intentClassifierLegacy.mjs	tests/rulesPolicy.test.mjs
+mr_is_control	src/mesh/peerText.ts	isControl	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_scrub	src/mesh/peerText.ts	unitWidth	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_scrub	src/mesh/peerText.ts	scrub	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_cut_units	src/mesh/peerText.ts	cutText	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_wrap	src/mesh/peerText.ts	wrapMarked	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_inline	src/mesh/peerText.ts	untrusted	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_id	src/mesh/peerText.ts	untrustedId	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_block	src/mesh/peerText.ts	untrustedBlock	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
+mr_has_fence	src/mesh/peerText.ts	withPeerHeader	c41f8ce	tests/oracles/peerTextLegacy.mjs	tests/rulesMesh.test.mjs
