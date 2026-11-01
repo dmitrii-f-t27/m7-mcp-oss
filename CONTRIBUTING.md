@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # Contributing to M7 MCP
 
 This repository is an independent derivative of M7 MCP (see [README.md](README.md)). Contributions are accepted; no review schedule is promised. Before investing significant effort, open an issue describing the change.

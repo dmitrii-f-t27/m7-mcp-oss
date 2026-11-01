@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # M7 MCP — Master Reference
 
 ## Identity

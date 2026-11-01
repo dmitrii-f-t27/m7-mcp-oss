@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { AgentType, AgentConfig, AgentContext, AgentResponse, AgentProposal } from '../types/agent.js';

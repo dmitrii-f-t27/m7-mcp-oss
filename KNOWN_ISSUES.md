@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # Known issues and fix roadmap
 
 > This is the original project's list at the fork point. This fork tracks its own findings in SECURITY.md (SEC-n).

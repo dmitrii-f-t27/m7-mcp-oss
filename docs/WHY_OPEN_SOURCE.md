@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # Why M7 is open source, and not a patent or a startup
 
 > Written by DukeDeSouth, the original author of M7, about the original project. "I" means that author. It does not describe this fork.

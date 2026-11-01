@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-8 (MEDIUM): `.env` is read from the install directory only.
  *

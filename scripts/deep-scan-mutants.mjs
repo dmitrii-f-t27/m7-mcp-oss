@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Checks that the deep scan suites catch each fix being reverted.
  *

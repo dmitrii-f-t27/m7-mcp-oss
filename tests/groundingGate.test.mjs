@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Grounding gate tests (Sprint 3)
  * Run: npm run build && node tests/groundingGate.test.mjs

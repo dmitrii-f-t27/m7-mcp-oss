@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-7 (MEDIUM): mesh file exchange cannot write or read what it should not,
  * and text that comes from other workstations is marked as untrusted data.

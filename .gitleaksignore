@@ -1,2 +1,3 @@
+# Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 72a7640700dbd7cebc0d57eabe8253989af084ba:src/tsi/patterns/security/auth.yaml:generic-api-key:30
 72a7640700dbd7cebc0d57eabe8253989af084ba:src/tsi/patterns/security/auth.yaml:generic-api-key:32

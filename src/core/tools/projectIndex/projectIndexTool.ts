@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Project Index MCP Tool
  * Автоматическое создание и обновление INDEX.md файла проекта

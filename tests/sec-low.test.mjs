@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-12 (LOW, other spot) the mesh relay, and SEC-10 (LOW) the Cursor installer.
  *

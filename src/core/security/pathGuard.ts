@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 import { promises as fs, lstatSync, readdirSync, realpathSync } from 'fs';
 import * as nodePath from 'path';
 

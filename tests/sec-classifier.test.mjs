@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-3 (MEDIUM): task text stays on the machine unless remote classification
  * is switched on with M7_ALLOW_REMOTE_CLASSIFICATION=true.

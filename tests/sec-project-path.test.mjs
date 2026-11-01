@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-5 (MEDIUM): M7_PROJECT_PATH beats the Cursor activity scan.
  *

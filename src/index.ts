@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import { loadInstallEnv } from './core/utils/loadEnv.js';
 // Keys come from the process environment or from the .env in the install
 // directory (the parent of dist/). A .env in the working directory is not read.

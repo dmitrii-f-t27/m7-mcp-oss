@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # 📝 Changelog
 
 All notable changes to M7 MCP Server will be documented in this file.

@@ -1,3 +1,5 @@
+> Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
+
 # M7 MCP (independent derivative)
 
 This is an independent derivative of [M7 MCP](https://github.com/DukeDeSouth/m7-mcp-oss), created by DukeDeSouth. It was forked at v3.22.2 (`0ace0ab`) under the Apache License 2.0. It is not the original author's project, and the original author does not endorse it. Apache-2.0 grants no trademark rights; the name M7 is used here to say where this code comes from. The name of this fork is not final.

@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import { join } from 'path';
 import { createLogger } from '../core/utils/logger.js';
 import { getProjectPath } from '../core/utils/projectPath.js';

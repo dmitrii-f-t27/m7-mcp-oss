@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * Adds the "m7" server to a Cursor MCP config file and keeps everything else.
  *

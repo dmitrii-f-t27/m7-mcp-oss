@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';

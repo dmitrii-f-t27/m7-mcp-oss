@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';

@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * File Utilities for Knowledge Hub
  * Provides safe, atomic file operations with error handling

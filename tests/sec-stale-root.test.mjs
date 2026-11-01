@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-21 (HIGH): every part of the server must work on the project the server resolved,
  * and must follow it when the client's Roots change.

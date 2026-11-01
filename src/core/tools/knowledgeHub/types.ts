@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Knowledge Hub Types
  * Complete type definitions for the Knowledge Hub system

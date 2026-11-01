@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-19 and SEC-20 (MEDIUM): the knowledge hub never moves or replaces a project
  * file on its own, and a document path stays inside the hub.

@@ -1,0 +1,38 @@
+M7 MCP (independent derivative)
+Copyright 2026 Dmitrii Fedorov, for the changes described below.
+
+This product is an independent derivative of M7 MCP:
+  Project: https://github.com/DukeDeSouth/m7-mcp-oss
+  Author:  DukeDeSouth and contributors
+  License: Apache License 2.0 (see LICENSE)
+  Forked at commit 0ace0ab (version 3.22.2).
+
+It is not the original author's project and the original author does not
+endorse it. Apache-2.0 grants no trademark rights. The original project's
+LICENSE is kept unchanged.
+
+STATEMENT OF CHANGES (2026), by Dmitrii Fedorov
+
+Compared with commit 0ace0ab, this version:
+- removes 35 files: modules unreachable from src/index.ts, tests that covered
+  only those modules or no repository code, and 9 unused npm dependencies;
+- no longer overwrites project files, and sets up only empty directories on
+  its own;
+- keeps task text local unless M7_ALLOW_REMOTE_CLASSIFICATION=true;
+- checks file paths for containment, secret names and symbolic links, and
+  marks peer text as untrusted;
+- binds the visualizer and the mesh relay to loopback by default, and checks
+  Host and Origin in the visualizer;
+- reads .env only from the install directory;
+- prefers M7_PROJECT_PATH over the Cursor activity scan;
+- sends no temperature to Opus models, fixes task folder paths, and changes
+  the installer so it merges its MCP client entry and writes no keys;
+- raises dependency versions and rewrites the documentation for this fork.
+Details and what stays open: SECURITY.md and CHANGELOG.md.
+
+Each modified source or text file says so in its first lines. 62 files were
+modified and 25 added. These cannot carry a comment and are changed too:
+  mcp.json
+  package-lock.json
+  package.json
+  tests/fixtures/tools-base-3.22.2.json

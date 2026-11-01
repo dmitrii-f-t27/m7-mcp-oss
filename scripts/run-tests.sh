@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 # Runs every tests/*.test.mjs and tests/reliability/*.test.mjs in isolation
 # with a per-file timeout, then fails if any test wrote into the repository.
 # Usage: scripts/run-tests.sh [timeout_seconds]

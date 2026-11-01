@@ -1,3 +1,4 @@
+// Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 /**
  * SEC-7 (MEDIUM), the Hive part: text from other M7 instances is data, not
  * instruction, also when Hive puts it into the task that goes to the model APIs.
