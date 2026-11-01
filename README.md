@@ -216,7 +216,7 @@ temporary project, and `npm test` fails if a run leaves files in the repository.
 
 ## Known limitations
 
-- Both API keys are required at startup even if you never call Hive.
+- Both API keys are required at startup even if you never call Hive. Without both keys the server exits with code 1 and prints nothing unless M7_DEBUG=true.
 - The grounding gate checks that the files and memory records a step cites
   exist. It does not check that they support the step's claim.
 - `src/tsi` loads its YAML patterns from `src/tsi/patterns` even when running
@@ -234,8 +234,8 @@ temporary project, and `npm test` fails if a run leaves files in the repository.
 See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs are welcome in this fork;
 no response time is promised. If you want something concrete to work on,
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) lists confirmed defects with code
-references and a suggested order. The first response sprint (Stage 1 batch 1) is
-documented in [docs/COMMUNITY_SPRINT.md](docs/COMMUNITY_SPRINT.md).
+references and a suggested order. The first response sprint of the original project
+(Stage 1 batch 1) is documented in [docs/COMMUNITY_SPRINT.md](docs/COMMUNITY_SPRINT.md).
 
 ## Thanks
 

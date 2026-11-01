@@ -41,6 +41,8 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { PLACEHOLDER_KEYS, isolatedEnv } from './helpers/deepScanHarness.mjs';
+
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RELAY_JS = path.join(REPO_ROOT, 'dist', 'mesh', 'relay', 'server.js');
 const RELAY_TS = path.join(REPO_ROOT, 'src', 'mesh', 'relay', 'server.ts');
@@ -535,5 +537,78 @@ describe('SEC-27: ConsoleMonitor uses the journal of the latest call', () => {
     } finally {
       console.error = realError;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test network: the test scripts and the harness force placeholder keys and
+// closed-port base URLs. A key or a base URL that the shell already holds must
+// not reach a test run, or a run could use a real key or reach a real API.
+// ---------------------------------------------------------------------------
+
+const FORCED_TEST_ENV = {
+  OPENAI_API_KEY: 'sk-test-placeholder',
+  ANTHROPIC_API_KEY: 'sk-ant-test-placeholder',
+  OPENAI_BASE_URL: 'http://127.0.0.1:9/v1',
+  ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
+};
+// Sentinels, not keys: the tests only look at which value comes out.
+const INHERITED_TEST_ENV = {
+  OPENAI_API_KEY: 'inherited-openai-key-sentinel',
+  ANTHROPIC_API_KEY: 'inherited-anthropic-key-sentinel',
+  OPENAI_BASE_URL: 'http://inherited-openai.invalid/v1',
+  ANTHROPIC_BASE_URL: 'http://inherited-anthropic.invalid',
+};
+
+describe('test network: keys and base URLs are forced, not inherited', () => {
+  it('scripts/run-tests.sh sets all four variables whatever the shell holds', () => {
+    const text = readFileSync(path.join(REPO_ROOT, 'scripts', 'run-tests.sh'), 'utf8');
+    const exportLines = text.split('\n').filter(l => /^export (OPENAI|ANTHROPIC)_(API_KEY|BASE_URL)=/.test(l));
+    const script = `${exportLines.join('\n')}\nprintf '%s\\n' "$OPENAI_API_KEY" "$ANTHROPIC_API_KEY" "$OPENAI_BASE_URL" "$ANTHROPIC_BASE_URL"`;
+    for (const [label, inherited] of [['inherited values', INHERITED_TEST_ENV], ['no inherited values', {}]]) {
+      const res = spawnSync('bash', ['-c', script], { env: { PATH: process.env.PATH, ...inherited }, encoding: 'utf8' });
+      assert.equal(res.status, 0, res.stderr);
+      assert.deepEqual(
+        res.stdout.trimEnd().split('\n'),
+        [FORCED_TEST_ENV.OPENAI_API_KEY, FORCED_TEST_ENV.ANTHROPIC_API_KEY, FORCED_TEST_ENV.OPENAI_BASE_URL, FORCED_TEST_ENV.ANTHROPIC_BASE_URL],
+        `run-tests.sh with ${label}`,
+      );
+    }
+  });
+
+  it('scripts/deep-scan-mutants.mjs hands the mutant tests the forced values whatever the shell holds', () => {
+    const text = readFileSync(path.join(REPO_ROOT, 'scripts', 'deep-scan-mutants.mjs'), 'utf8');
+    const block = /^const env = \{\n([\s\S]*?)\n\};/m.exec(text);
+    assert.ok(block, 'the env object of the mutant script was not found');
+    for (const [label, inherited] of [['inherited values', INHERITED_TEST_ENV], ['no inherited values', {}]]) {
+      const env = new Function('process', 'ROOT', `return {${block[1]}};`)({ env: { ...inherited } }, '/root');
+      for (const [name, value] of Object.entries(FORCED_TEST_ENV)) {
+        assert.equal(env[name], value, `mutant script, ${name} with ${label}`);
+      }
+    }
+  });
+
+  it('isolatedEnv points both SDKs at the closed port, even when the process environment says otherwise', () => {
+    const saved = Object.fromEntries(Object.keys(INHERITED_TEST_ENV).map(k => [k, process.env[k]]));
+    Object.assign(process.env, INHERITED_TEST_ENV);
+    let env;
+    try {
+      env = isolatedEnv('/x');
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    assert.equal(env.OPENAI_BASE_URL, FORCED_TEST_ENV.OPENAI_BASE_URL);
+    assert.equal(env.ANTHROPIC_BASE_URL, FORCED_TEST_ENV.ANTHROPIC_BASE_URL);
+    assert.equal(env.OPENAI_API_KEY, PLACEHOLDER_KEYS.OPENAI_API_KEY);
+    assert.equal(env.ANTHROPIC_API_KEY, PLACEHOLDER_KEYS.ANTHROPIC_API_KEY);
+  });
+
+  it('isolatedEnv lets the caller choose a base URL (a test with its own fake provider)', () => {
+    const env = isolatedEnv('/x', { OPENAI_BASE_URL: 'u' });
+    assert.equal(env.OPENAI_BASE_URL, 'u');
+    assert.equal(env.ANTHROPIC_BASE_URL, FORCED_TEST_ENV.ANTHROPIC_BASE_URL);
   });
 });

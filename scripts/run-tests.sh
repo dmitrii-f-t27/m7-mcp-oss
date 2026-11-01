@@ -10,6 +10,9 @@
 #   does not wander off to another workspace on the machine. Tests that write
 #   state must bind their own temp project (CURSOR_WORKSPACE outranks
 #   M7_PROJECT_PATH); the pollution check below enforces that.
+# - The two API keys and the two base URLs are set below whatever the shell holds,
+#   so a test run never uses a real key and never reaches a real API. A test that
+#   needs a fake provider sets its own base URL for its child process.
 # - --test-force-exit: some modules keep timers/watchers alive after the
 #   tests finish; without it the process would hang.
 set -u
@@ -17,10 +20,10 @@ cd "$(dirname "$0")/.."
 
 TIMEOUT="${1:-120}"
 export CURSOR_WORKSPACE="${CURSOR_WORKSPACE:-$PWD}"
-export OPENAI_API_KEY="${OPENAI_API_KEY:-sk-test-placeholder}"
-export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-sk-ant-test-placeholder}"
-export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:9/v1}"
-export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://127.0.0.1:9}"
+export OPENAI_API_KEY="sk-test-placeholder"
+export ANTHROPIC_API_KEY="sk-ant-test-placeholder"
+export OPENAI_BASE_URL="http://127.0.0.1:9/v1"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:9"
 
 pass=0; fail=0; failed=()
 marker="$(mktemp "${TMPDIR:-/tmp}/m7-test-start.XXXXXX")"

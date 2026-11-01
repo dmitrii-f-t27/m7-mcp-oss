@@ -25,6 +25,8 @@ Tests import from `dist/`, so build first. A test that writes state binds its ow
 
 `npm test` points the model SDKs at a closed local port, so a test run does not reach the real APIs.
 
+Test servers read the install-directory .env, so keep M7_TELEMETRY_ENDPOINT, M7_MESH_RELAY and M7_ALLOW_REMOTE_CLASSIFICATION out of it while running tests.
+
 To run the server manually:
 
 ```bash

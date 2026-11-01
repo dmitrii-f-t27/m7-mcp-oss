@@ -1,3 +1,4 @@
+// Modified by Dmitrii Fedorov, 2026: changed from the original M7 MCP (see NOTICE).
 /**
  * Shared helpers for the Deep Scan acceptance suites.
  *
@@ -50,7 +51,12 @@ export function isolatedEnv(dir, extra = {}) {
   delete env.WORKSPACE_FOLDER_PATHS;
   delete env.AGENT_TRANSCRIPTS;
   delete env.M7_DEBUG;
+  // Both SDKs read their base URL from the environment: point them at a closed local port, so a
+  // test server never reaches a real API. `extra` can still name a fake provider.
   Object.assign(env, PLACEHOLDER_KEYS, {
+    OPENAI_BASE_URL: 'http://127.0.0.1:9/v1',
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
+  }, {
     CURSOR_WORKSPACE: dir,
     M7_PROJECT_PATH: dir,
     CURSOR_PROJECTS_DIR: path.join(dir, '.no-cursor-projects'),

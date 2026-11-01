@@ -254,10 +254,10 @@ const MUTANTS = [
 const env = {
   ...process.env,
   CURSOR_WORKSPACE: process.env.CURSOR_WORKSPACE ?? ROOT,
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? 'sk-test-placeholder',
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'sk-ant-test-placeholder',
-  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? 'http://127.0.0.1:9/v1',
-  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? 'http://127.0.0.1:9',
+  OPENAI_API_KEY: 'sk-test-placeholder',
+  ANTHROPIC_API_KEY: 'sk-ant-test-placeholder',
+  OPENAI_BASE_URL: 'http://127.0.0.1:9/v1',
+  ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
 };
 
 // A mutant may write wherever the old code wrote (e.g. process.cwd()); keep that out of the repo.

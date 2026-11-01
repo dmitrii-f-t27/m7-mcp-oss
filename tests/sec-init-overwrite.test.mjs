@@ -701,7 +701,7 @@ describe('init_project with an explicit project_path', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Pure decision functions (ported to t27 in a later stage)
+// Pure decision functions (a t27 port is planned, not done)
 // ---------------------------------------------------------------------------
 
 const loadSafeWrite = () => import(path.join(DIST, 'core/utils/safeWrite.js'));
