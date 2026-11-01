@@ -1,6 +1,10 @@
 // Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 import { promises as fs, lstatSync, readdirSync, realpathSync } from 'fs';
 import * as nodePath from 'path';
+import {
+  REFUSE_BAD_TEXT, REFUSE_CONTROL, REFUSE_NUL, REFUSE_RULES, REFUSE_SECRET, REFUSE_TOO_LONG,
+  insideWith, linkLeaves, plainEntryName, pullVerdict, pushVerdict, relativeFrom, splitSegments, trimEnd,
+} from '../../rules/pathRules.js';
 
 /**
  * Path rules for files that cross a trust boundary (SEC-7).
@@ -11,74 +15,34 @@ import * as nodePath from 'path';
  * - names: some files are never exchanged with a peer or written by a tool
  *   (`pushRefusal`, `pullRefusal`).
  *
- * The decision rules are pure: no I/O, no regular expressions, only byte-level
- * comparisons, so they can move to a t27 spec unchanged. The one exception is
- * `foldUnicode`, marked NATIVE FACADE below: Unicode tables belong to the platform,
- * so it stays native and hands plain folded text to the rules. The I/O functions at
- * the end resolve symlinks and call the rules.
+ * The decision rules are written in t27 (specs/path_rules.t27, specs/path_tables.t27,
+ * specs/bytes_rules.t27) and run as WebAssembly. The functions below that were rules are
+ * one-line calls into src/rules/pathRules.ts, which writes the text into the wasm and reads the
+ * answer. If the wasm is missing or fails, they give the refusing answer of their rule
+ * (`REFUSE_RULES`, `false` for containment, `true` for a link that leaves the root).
+ * Text over 4096 bytes (a verdict: over 16384 bytes after folding) and text with a lone
+ * surrogate are refused too: a rule never decides on a cut or a changed text.
+ *
+ * Two parts stay native. `foldUnicode` (marked NATIVE FACADE below): Unicode tables belong to
+ * the platform, so it hands plain folded text to the rules. The I/O functions at the end
+ * resolve symlinks and call the rules.
  *
  * Limit: a path is checked, then used. A symlink swapped between the check and the
  * write is not caught.
  */
 
 // ---------------------------------------------------------------------------
-// Pure rules
+// Rules (specs/path_rules.t27)
 // ---------------------------------------------------------------------------
 
-const SLASH = 47; // '/'
-const BACKSLASH = 92; // '\'
-const UPPER_A = 65;
-const UPPER_Z = 90;
-const CASE_GAP = 32;
-
 /** Why a path was refused. */
-export const REFUSE_NUL = 'the path contains a NUL byte';
-export const REFUSE_SECRET = 'a secret or credential file is never exchanged';
-export const REFUSE_CONTROL = 'a git, editor or M7 control path is never written from a peer';
+export { REFUSE_BAD_TEXT, REFUSE_CONTROL, REFUSE_NUL, REFUSE_RULES, REFUSE_SECRET, REFUSE_TOO_LONG };
 export const REFUSE_OUTSIDE = 'the path is outside the project, or leaves it through a symlink';
 export const REFUSE_ROOT = 'the project root cannot be resolved';
 
-// The name lists below hold folded text (see `foldName`): lower case, no look-alike
-// letters, no ignorable marks, no trailing dots or spaces. A segment is folded before
-// it is compared, so `.ENV`, `.cur` + long s + `orrules` and `.env ` all match.
-
-/** Names (whole path segment, folded) that hold secrets. */
-const SECRET_NAMES = [
-  '.env', '.envrc', '.npmrc', '.netrc', '.pypirc', '.pgpass', '.git-credentials',
-  'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519',
-  'credentials', '.aws', '.ssh', '.docker', '.kube', '.gnupg',
-];
-/** A segment that starts with one of these holds secrets (`.env.local`). */
-const SECRET_PREFIXES = ['.env.'];
-/**
- * A segment that ends with one of these holds secrets. `.env` is here because the
- * old push filter blocked `*.env`; it is kept so no protection is lost.
- */
-const SECRET_SUFFIXES = ['.key', '.pem', '.p12', '.pfx', '.jks', '.keystore', '.env'];
-/**
- * Names (whole path segment, folded) that steer git, editors, agents or M7. Agent
- * instruction files (`claude.md`, `agents.md`, `gemini.md`, `.clinerules`, `.windsurfrules`)
- * and tool folders (`.devcontainer`, `.idea`) change what an agent or a tool does the same
- * way `.cursorrules` does; `.gitmodules` and `.gitattributes` steer git.
- */
-const CONTROL_NAMES = [
-  '.git', '.cursor', '.cursorrules', '.vscode', '.claude', '.m7', '.husky', '.github', '.mcp.json',
-  'claude.md', 'agents.md', 'gemini.md', '.clinerules', '.windsurfrules', '.devcontainer', '.idea',
-  '.gitmodules', '.gitattributes',
-];
-
-function isSeparator(code: number, win: boolean): boolean {
-  return code === SLASH || (win && code === BACKSLASH);
-}
-
-function foldAscii(code: number): number {
-  return code >= UPPER_A && code <= UPPER_Z ? code + CASE_GAP : code;
-}
-
 // --- NATIVE FACADE: Unicode folding --------------------------------------------
 // Not ported to t27. Normalization, case tables and the Default_Ignorable_Code_Point
-// property come from the platform (ICU in Node). Everything after this function is
-// plain code-unit comparison.
+// property come from the platform (ICU in Node). The folded text goes to the rules as bytes.
 
 const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
 
@@ -97,20 +61,9 @@ export function foldUnicode(text: string): string {
   return text.replace(IGNORABLE, '').normalize('NFKC').toUpperCase().toLowerCase().replace(IGNORABLE, '');
 }
 
-// --- Pure rules again -----------------------------------------------------------
-
-const DOT = 46; // '.'
-const SPACE = 32; // ' '
-
-/** Cut trailing dots and spaces. Windows and some network file systems ignore them in a name. */
+/** Cut trailing dots and spaces. Windows and some network file systems ignore them in a name. On a failure the text stays as it is. */
 export function trimTrailingDotSpace(text: string): string {
-  let end = text.length;
-  while (end > 0) {
-    const code = text.charCodeAt(end - 1);
-    if (code !== DOT && code !== SPACE) break;
-    end--;
-  }
-  return text.slice(0, end);
+  return trimEnd(text);
 }
 
 /** The comparison key of one path segment: folded, without trailing dots and spaces. */
@@ -118,49 +71,19 @@ export function foldName(segment: string): string {
   return trimTrailingDotSpace(foldUnicode(segment));
 }
 
-/** Path segments. Both `/` and `\` separate, whatever the platform: the stricter reading. */
+/** Path segments. Both `/` and `\` separate, whatever the platform: the stricter reading. Throws if the rules cannot split the text. */
 export function pathSegments(rel: string): string[] {
-  const segments: string[] = [];
-  let start = 0;
-  for (let i = 0; i <= rel.length; i++) {
-    if (i === rel.length || isSeparator(rel.charCodeAt(i), true)) {
-      if (i > start) segments.push(rel.slice(start, i));
-      start = i + 1;
-    }
-  }
-  return segments;
-}
-
-/** `folded` is the output of `foldName`. */
-function isSecretSegment(folded: string): boolean {
-  if (SECRET_NAMES.includes(folded)) return true;
-  for (const prefix of SECRET_PREFIXES) if (folded.startsWith(prefix)) return true;
-  for (const suffix of SECRET_SUFFIXES) if (folded.endsWith(suffix)) return true;
-  return false;
-}
-
-/** `folded` is the output of `foldName`. */
-function isControlSegment(folded: string): boolean {
-  return CONTROL_NAMES.includes(folded);
+  return splitSegments(rel);
 }
 
 /** A reason when `rel` must not be pushed to a peer, otherwise null. */
 export function pushRefusal(rel: string): string | null {
-  if (rel.indexOf('\0') !== -1) return REFUSE_NUL;
-  for (const segment of pathSegments(rel)) {
-    if (isSecretSegment(foldName(segment))) return REFUSE_SECRET;
-  }
-  return null;
+  return pushVerdict(rel, foldUnicode);
 }
 
 /** A reason when `rel` must not be written into the project, otherwise null. */
 export function pullRefusal(rel: string): string | null {
-  const secret = pushRefusal(rel);
-  if (secret !== null) return secret;
-  for (const segment of pathSegments(rel)) {
-    if (isControlSegment(foldName(segment))) return REFUSE_CONTROL;
-  }
-  return null;
+  return pullVerdict(rel, foldUnicode);
 }
 
 /**
@@ -169,19 +92,7 @@ export function pullRefusal(rel: string): string | null {
  * `win` turns on the Windows reading: both separators, ASCII case-insensitive.
  */
 export function isInsideWith(root: string, target: string, win: boolean): boolean {
-  const n = root.length;
-  if (n === 0 || target.length < n) return false;
-  for (let i = 0; i < n; i++) {
-    const a = root.charCodeAt(i);
-    const b = target.charCodeAt(i);
-    if (a === b) continue;
-    if (win && isSeparator(a, true) && isSeparator(b, true)) continue;
-    if (win && foldAscii(a) === foldAscii(b)) continue;
-    return false;
-  }
-  if (target.length === n) return true;
-  if (isSeparator(root.charCodeAt(n - 1), win)) return true;
-  return isSeparator(target.charCodeAt(n), win);
+  return insideWith(root, target, win);
 }
 
 export function isInside(root: string, target: string): boolean {
@@ -190,10 +101,7 @@ export function isInside(root: string, target: string): boolean {
 
 /** `target` relative to `root` when it is inside, otherwise null. */
 export function relativeWithin(root: string, target: string): string | null {
-  if (!isInside(root, target)) return null;
-  let i = root.length;
-  while (i < target.length && isSeparator(target.charCodeAt(i), process.platform === 'win32')) i++;
-  return target.slice(i);
+  return relativeFrom(root, target, process.platform === 'win32');
 }
 
 /**
@@ -201,7 +109,7 @@ export function relativeWithin(root: string, target: string): string | null {
  * when the link dangles, which counts as leaving: the target can be created later.
  */
 export function linkLeavesRoot(realRoot: string, real: string | null): boolean {
-  return real === null || !isInside(realRoot, real);
+  return linkLeaves(realRoot, real, process.platform === 'win32');
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +177,7 @@ export async function resolveContained(root: string, rel: string): Promise<strin
 
 /** True when `name` can be joined to a directory: not empty, not `.` or `..`, no NUL. */
 export function isPlainEntryName(name: string): boolean {
-  return name !== '' && name !== '.' && name !== '..' && name.indexOf('\0') === -1;
+  return plainEntryName(name);
 }
 
 /**

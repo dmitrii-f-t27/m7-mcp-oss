@@ -15,7 +15,8 @@
  *   struct-in-export       an exported function whose signature names a struct of the spec
  *   missing-length-check   an exported function with an array and a `len` parameter whose first statement
  *                          is not an `if` that compares every `len` parameter
- *   exports                a name in specs/exports.txt is not a `pub fn` of any spec
+ *   exports                a name in specs/exports.txt is neither a `pub fn` of a spec nor a function that a
+ *                          wrapper (specs/wasm/*.c) defines
  *   order                  specs/ORDER and the specs/*.t27 files do not name the same specs
  *
  * Comments: `//` to the end of the line, and `;` at the start of a line outside any braces.
@@ -215,6 +216,11 @@ function pubFns(text) {
   return blocks(mask(text).masked).filter(b => b.kind === 'fn' && b.pub).map(b => b.name);
 }
 
+/** Names of the functions that a wrapper file defines: `uint8_t *name(void) {` or `type name(args) {` at the start of a line. */
+function wrapperFns(text) {
+  return [...text.matchAll(/^[A-Za-z_][A-Za-z0-9_ \t*]*?[ \t*]([A-Za-z_][A-Za-z0-9_]*)\([^)]*\)[ \t]*\{/gm)].map(m => m[1]);
+}
+
 export function readNames(file) {
   if (!existsSync(file)) return [];
   return readFileSync(file, 'utf8').split('\n').flatMap(l => l.replace(/#.*/, '').split(/\s+/)).filter(Boolean);
@@ -236,7 +242,10 @@ export function lintTree(root) {
     for (const f of pubFns(text)) fns.add(f);
     for (const p of lintSpec(text, { exported })) problems.push(`specs/${name}.t27:${p.line}: [${p.rule}] ${p.text}`);
   }
-  for (const e of exported) if (!fns.has(e)) problems.push(`specs/exports.txt: [exports] ${e} is not a pub fn of any spec`);
+  const wasmDir = path.join(dir, 'wasm');
+  const wrappers = existsSync(wasmDir) ? readdirSync(wasmDir).filter(f => f.endsWith('.c')) : [];
+  for (const f of wrappers) for (const name of wrapperFns(readFileSync(path.join(wasmDir, f), 'utf8'))) fns.add(name);
+  for (const e of exported) if (!fns.has(e)) problems.push(`specs/exports.txt: [exports] ${e} is not a pub fn of any spec nor defined in a wrapper`);
   return { problems, specs: files.length };
 }
 

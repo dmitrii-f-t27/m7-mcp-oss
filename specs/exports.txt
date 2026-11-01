@@ -1,3 +1,8 @@
 # Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 # Names exported from wasm/m7_rules.wasm, in the order of specs/ORDER. One or more names per line.
+# A name is a pub fn of a spec, or a buffer accessor that specs/wasm/m7_rules_wasm.c defines.
 by_fold_ascii by_is_sep by_is_cont
+pr_has_nul pr_seg_start pr_seg_end pr_trim_end pr_push_verdict pr_pull_verdict
+pr_is_inside pr_relative_start pr_link_leaves pr_plain_entry_name
+pr_env_source pr_needs_switch pr_unsafe_fallback
+pr_addr_a pr_addr_b pr_addr_joined pr_addr_seg

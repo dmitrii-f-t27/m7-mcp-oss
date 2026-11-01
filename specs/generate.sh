@@ -10,6 +10,7 @@
 # `npm run build` and `npm test` do not need any of them; only this script does.
 #
 # Steps (any failure stops the script with exit 1):
+#   0. node specs/tables/path_tables.mjs writes specs/path_tables.t27 from the name lists
 #   1. node specs/lint.mjs
 #   2. the compilers match specs/T27C_PIN; t27c parse-complete and check-calls are clean; t27c check has no warning
 #   3. t27c gen-c into specs/generated/<spec>.h with the notice line first
@@ -65,7 +66,8 @@ cd "$ROOT"
 
 names_of() { awk '{ sub(/#.*/, ""); for (i = 1; i <= NF; i++) print $i }' "$1"; }
 
-# ---- 1. lint
+# ---- 0. the generated spec, 1. lint
+node specs/tables/path_tables.mjs "$ROOT" > /dev/null || fail "generating specs/path_tables.t27 failed"
 node specs/lint.mjs "$ROOT" || fail "lint failed"
 
 # ---- 2. compilers, parse, calls, check
@@ -183,7 +185,7 @@ echo "generate.sh: ${#order[@]} spec(s), wasm $size bytes, sha256 $(node -e 'pro
 # ---- --check: compare with the tree
 if [ "$mode" = check ]; then
   bad=0
-  outputs=(wasm/m7_rules.wasm src/rules/generated/constants.ts specs/MANIFEST.sha256)
+  outputs=(wasm/m7_rules.wasm src/rules/generated/constants.ts specs/MANIFEST.sha256 specs/path_tables.t27)
   for s in "${order[@]}"; do outputs+=("specs/generated/$s.h"); done
   for f in "${outputs[@]}"; do
     if [ ! -f "$REPO/$f" ]; then echo "generate.sh --check: $f is missing from the tree" >&2; bad=1

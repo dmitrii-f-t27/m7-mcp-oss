@@ -1,2 +1,19 @@
 # Added by Dmitrii Fedorov, 2026; not part of the original M7 MCP. Apache-2.0 (see NOTICE).
 spec_fn	source_file	source_symbol	base_rev	oracle_file	test_file
+by_is_sep	src/core/security/pathGuard.ts	isSeparator	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+by_fold_ascii	src/core/security/pathGuard.ts	foldAscii	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_has_nul	src/core/security/pathGuard.ts	pushRefusal	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_seg_start	src/core/security/pathGuard.ts	pathSegments	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_seg_end	src/core/security/pathGuard.ts	pathSegments	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_trim_end	src/core/security/pathGuard.ts	trimTrailingDotSpace	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_push_verdict	src/core/security/pathGuard.ts	isSecretSegment	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_pull_verdict	src/core/security/pathGuard.ts	isControlSegment	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_push_verdict	src/core/security/pathGuard.ts	pushRefusal	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_pull_verdict	src/core/security/pathGuard.ts	pullRefusal	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_is_inside	src/core/security/pathGuard.ts	isInsideWith	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_relative_start	src/core/security/pathGuard.ts	relativeWithin	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_link_leaves	src/core/security/pathGuard.ts	linkLeavesRoot	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_plain_entry_name	src/core/security/pathGuard.ts	isPlainEntryName	c41f8ce	tests/oracles/pathGuardLegacy.mjs	tests/rulesPath.test.mjs
+pr_env_source	src/core/utils/projectPath.ts	selectProjectSource	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs
+pr_needs_switch	src/core/utils/projectPath.ts	needsProjectSwitch	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs
+pr_unsafe_fallback	src/core/utils/projectPath.ts	isUnsafeFallbackPath	c41f8ce	tests/oracles/projectPathLegacy.mjs	tests/rulesPath.test.mjs

@@ -68,9 +68,10 @@ describe('wasm/m7_rules.wasm', () => {
     assert.deepEqual(have, [...names('specs/exports.txt'), 'memory', '_initialize'].sort());
   });
 
-  it('every name of specs/exports.txt is a pub fn of a spec in specs/ORDER', () => {
+  it('every name of specs/exports.txt is a pub fn of a spec in specs/ORDER or a function of the wrapper', () => {
     const pub = names('specs/ORDER').flatMap(s => [...read(`specs/${s}.t27`).matchAll(/^pub fn ([A-Za-z_][A-Za-z0-9_]*)\(/gm)].map(m => m[1]));
-    for (const e of names('specs/exports.txt')) assert.ok(pub.includes(e), `${e} is not a pub fn`);
+    const wrapper = [...read('specs/wasm/m7_rules_wasm.c').matchAll(/^uint8_t \*([a-z_0-9]+)\(void\) \{/gm)].map(m => m[1]);
+    for (const e of names('specs/exports.txt')) assert.ok(pub.includes(e) || wrapper.includes(e), `${e} is neither a pub fn nor a wrapper function`);
   });
 
   it('WASM_SHA256 in generated/constants.ts is the SHA-256 of the file', () => {
@@ -507,8 +508,11 @@ describe('specs/lint.mjs', () => {
     writeFileSync(path.join(dir, 'specs', 'exports.txt'), 'a_one a_two # comment\n');
     const text = lintTree(dir).problems.join('\n');
     assert.match(text, /specs\/ORDER:/);
-    assert.match(text, /a_two is not a pub fn/);
+    assert.match(text, /a_two is not a pub fn of any spec nor defined in a wrapper/);
     assert.doesNotMatch(text, /a_one is not/);
+    mkdirSync(path.join(dir, 'specs', 'wasm'));
+    writeFileSync(path.join(dir, 'specs', 'wasm', 'w.c'), 'uint8_t *a_two(void) { return 0; }\n');
+    assert.doesNotMatch(lintTree(dir).problems.join('\n'), /a_two/, 'a function that a wrapper defines can be exported');
   });
 
   it('the CLI exits 1 on a problem and 0 on a clean tree', () => {

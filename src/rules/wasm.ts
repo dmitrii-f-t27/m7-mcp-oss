@@ -35,9 +35,34 @@ export interface RulesExports {
   by_fold_ascii(b: number): number;
   by_is_sep(b: number, win: number): number;
   by_is_cont(b: number): number;
+  // path_rules. A text argument is the address of a buffer in this memory (one of the pr_addr_* below) and the true
+  // length of the text in it. A bool is 0 or 1. See specs/path_rules.t27 for the answers.
+  pr_addr_a(): number;
+  pr_addr_b(): number;
+  pr_addr_seg(): number;
+  pr_addr_joined(): number;
+  pr_has_nul(buf: number, len: number): number;
+  pr_seg_start(buf: number, len: number, pos: number): number;
+  pr_seg_end(buf: number, len: number, start: number): number;
+  pr_trim_end(buf: number, len: number): number;
+  pr_push_verdict(joined: number, len: number): number;
+  pr_pull_verdict(joined: number, len: number): number;
+  pr_is_inside(root: number, rootLen: number, target: number, targetLen: number, win: number): number;
+  pr_relative_start(root: number, rootLen: number, target: number, targetLen: number, win: number): number;
+  pr_link_leaves(realNull: number, inside: number): number;
+  pr_plain_entry_name(name: number, len: number): number;
+  pr_env_source(hasCursor: number, hasTranscripts: number, hasM7: number, rootsComplete: number, cwdAllowsScan: number): number;
+  pr_needs_switch(hasCurrent: number, cur: number, curLen: number, nxt: number, nxtLen: number): number;
+  pr_unsafe_fallback(isHome: number, isValid: number): number;
 }
 
-const REQUIRED_FUNCTIONS = ['by_fold_ascii', 'by_is_sep', 'by_is_cont'] as const;
+const REQUIRED_FUNCTIONS = [
+  'by_fold_ascii', 'by_is_sep', 'by_is_cont',
+  'pr_addr_a', 'pr_addr_b', 'pr_addr_seg', 'pr_addr_joined',
+  'pr_has_nul', 'pr_seg_start', 'pr_seg_end', 'pr_trim_end', 'pr_push_verdict', 'pr_pull_verdict',
+  'pr_is_inside', 'pr_relative_start', 'pr_link_leaves', 'pr_plain_entry_name',
+  'pr_env_source', 'pr_needs_switch', 'pr_unsafe_fallback',
+] as const;
 
 let verifiedModule: WebAssembly.Module | null = null;
 let instance: RulesExports | null = null;
@@ -75,6 +100,12 @@ function loadModule(): WebAssembly.Module {
   return module;
 }
 
+/** Write `bytes` at `ptr` in the memory of `x` and return their count. */
+function put(x: RulesExports, ptr: number, bytes: string): number {
+  new Uint8Array(x.memory.buffer).set(Buffer.from(bytes, 'latin1'), ptr);
+  return bytes.length;
+}
+
 const KNOWN_ANSWERS: Array<[string, (x: RulesExports) => number, number]> = [
   ['by_fold_ascii(64)', x => x.by_fold_ascii(64), 64],
   ['by_fold_ascii(65)', x => x.by_fold_ascii(65), 97],
@@ -89,6 +120,29 @@ const KNOWN_ANSWERS: Array<[string, (x: RulesExports) => number, number]> = [
   ['by_is_cont(128)', x => x.by_is_cont(128), 1],
   ['by_is_cont(191)', x => x.by_is_cont(191), 1],
   ['by_is_cont(192)', x => x.by_is_cont(192), 0],
+  ['pr_push_verdict(".env")', x => x.pr_push_verdict(x.pr_addr_joined(), put(x, x.pr_addr_joined(), '.env\0')), 1],
+  ['pr_push_verdict("src", "main.ts")', x => x.pr_push_verdict(x.pr_addr_joined(), put(x, x.pr_addr_joined(), 'src\0main.ts\0')), 0],
+  ['pr_push_verdict(".git")', x => x.pr_push_verdict(x.pr_addr_joined(), put(x, x.pr_addr_joined(), '.git\0')), 0],
+  ['pr_pull_verdict(".git")', x => x.pr_pull_verdict(x.pr_addr_joined(), put(x, x.pr_addr_joined(), '.git\0')), 2],
+  ['pr_pull_verdict("a.key")', x => x.pr_pull_verdict(x.pr_addr_joined(), put(x, x.pr_addr_joined(), 'a.key\0')), 1],
+  ['pr_has_nul("a", NUL, "b")', x => x.pr_has_nul(x.pr_addr_a(), put(x, x.pr_addr_a(), 'a\0b')), 1],
+  ['pr_has_nul("ab")', x => x.pr_has_nul(x.pr_addr_a(), put(x, x.pr_addr_a(), 'ab')), 0],
+  ['pr_seg_start("//a/b", 0)', x => x.pr_seg_start(x.pr_addr_a(), put(x, x.pr_addr_a(), '//a/b'), 0), 2],
+  ['pr_seg_end("//a/b", 2)', x => x.pr_seg_end(x.pr_addr_a(), put(x, x.pr_addr_a(), '//a/b'), 2), 3],
+  ['pr_trim_end("a. .")', x => x.pr_trim_end(x.pr_addr_seg(), put(x, x.pr_addr_seg(), 'a. .')), 1],
+  ['pr_is_inside("/a", "/a/b")', x => x.pr_is_inside(x.pr_addr_a(), put(x, x.pr_addr_a(), '/a'), x.pr_addr_b(), put(x, x.pr_addr_b(), '/a/b'), 0), 1],
+  ['pr_is_inside("/a", "/ab")', x => x.pr_is_inside(x.pr_addr_a(), put(x, x.pr_addr_a(), '/a'), x.pr_addr_b(), put(x, x.pr_addr_b(), '/ab'), 0), 0],
+  ['pr_relative_start("/a", "/a/b")', x => x.pr_relative_start(x.pr_addr_a(), put(x, x.pr_addr_a(), '/a'), x.pr_addr_b(), put(x, x.pr_addr_b(), '/a/b'), 0), 3],
+  ['pr_plain_entry_name("a")', x => x.pr_plain_entry_name(x.pr_addr_a(), put(x, x.pr_addr_a(), 'a')), 1],
+  ['pr_plain_entry_name("..")', x => x.pr_plain_entry_name(x.pr_addr_a(), put(x, x.pr_addr_a(), '..')), 0],
+  ['pr_needs_switch(same)', x => x.pr_needs_switch(1, x.pr_addr_a(), put(x, x.pr_addr_a(), '/a'), x.pr_addr_b(), put(x, x.pr_addr_b(), '/a')), 0],
+  ['pr_needs_switch(different)', x => x.pr_needs_switch(1, x.pr_addr_a(), put(x, x.pr_addr_a(), '/a'), x.pr_addr_b(), put(x, x.pr_addr_b(), '/b')), 1],
+  ['pr_link_leaves(0, 1)', x => x.pr_link_leaves(0, 1), 0],
+  ['pr_link_leaves(1, 1)', x => x.pr_link_leaves(1, 1), 1],
+  ['pr_unsafe_fallback(1, 0)', x => x.pr_unsafe_fallback(1, 0), 1],
+  ['pr_unsafe_fallback(0, 0)', x => x.pr_unsafe_fallback(0, 0), 0],
+  ['pr_env_source(1, 0, 0, 0, 0)', x => x.pr_env_source(1, 0, 0, 0, 0), 0],
+  ['pr_env_source(0, 0, 0, 0, 0)', x => x.pr_env_source(0, 0, 0, 0, 0), 4],
 ];
 
 function instantiate(module: WebAssembly.Module): RulesExports {

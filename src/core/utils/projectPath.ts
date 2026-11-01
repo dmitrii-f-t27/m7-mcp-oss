@@ -32,6 +32,10 @@ import { fileURLToPath } from 'url';
 import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { silentLogger as logger } from './logger.js';
 import { dataDirRefusal, M7_DATA_DIRS } from '../security/pathGuard.js';
+import {
+  PR_SRC_AGENT_TRANSCRIPTS, PR_SRC_CURSOR_ENV, PR_SRC_CURSOR_PROJECTS_DIR, PR_SRC_M7_PROJECT_PATH, PR_SRC_PROCESS_CWD,
+} from '../../rules/generated/constants.js';
+import { needsSwitch, selectSource, unsafeFallback } from '../../rules/pathRules.js';
 
 let cachedProjectPath: string | null = null;
 let userExplicitProjectPath: string | null = null;
@@ -93,8 +97,9 @@ function isBareHomeDirectory(dirPath: string): boolean {
   }
 }
 
+/** The home folder is not a project unless it holds a project marker. The rule is in specs/path_rules.t27. */
 function isUnsafeFallbackPath(dirPath: string): boolean {
-  return isBareHomeDirectory(dirPath) && !isValidProjectDirectory(dirPath);
+  return unsafeFallback(isBareHomeDirectory(dirPath), () => isValidProjectDirectory(dirPath));
 }
 
 function decodeCursorProjectSlug(slug: string): string | null {
@@ -266,6 +271,15 @@ export type EnvProjectSource =
   | 'Cursor projects dir'
   | 'process.cwd()';
 
+/** The name of each answer of the rule (specs/path_rules.t27, PR_SRC_*). */
+const SOURCE_NAME: Record<number, EnvProjectSource> = {
+  [PR_SRC_CURSOR_ENV]: 'CURSOR env',
+  [PR_SRC_AGENT_TRANSCRIPTS]: 'AGENT_TRANSCRIPTS',
+  [PR_SRC_M7_PROJECT_PATH]: 'M7_PROJECT_PATH',
+  [PR_SRC_CURSOR_PROJECTS_DIR]: 'Cursor projects dir',
+  [PR_SRC_PROCESS_CWD]: 'process.cwd()',
+};
+
 export interface EnvProjectSourceFacts {
   /** CURSOR_WORKSPACE or WORKSPACE_FOLDER_PATHS names a usable directory. */
   hasCursorEnv: boolean;
@@ -284,13 +298,11 @@ export interface EnvProjectSourceFacts {
  * 'Cursor projects dir' means "try the scan"; if the scan finds nothing the caller
  * falls back to process.cwd(). 'process.cwd()' is also the answer while
  * M7_PROJECT_PATH waits for the Roots step: the scan must not fill that gap.
+ * The rule is in specs/path_rules.t27. If the rules are not available this throws,
+ * so nothing is written.
  */
 export function selectProjectSource(facts: EnvProjectSourceFacts): EnvProjectSource {
-  if (facts.hasCursorEnv) return 'CURSOR env';
-  if (facts.hasAgentTranscripts) return 'AGENT_TRANSCRIPTS';
-  if (facts.hasValidM7Path) return facts.rootsComplete ? 'M7_PROJECT_PATH' : 'process.cwd()';
-  if (facts.cwdAllowsScan) return 'Cursor projects dir';
-  return 'process.cwd()';
+  return selectSource(facts, SOURCE_NAME);
 }
 
 function pickCwdCandidate(): string {
@@ -383,7 +395,7 @@ function notifyChange(oldPath: string | null, newPath: string): void {
  * Subscribers call this first, because the same path can be announced more than once.
  */
 export function needsProjectSwitch(current: string | null, next: string): boolean {
-  return current === null || resolve(current) !== resolve(next);
+  return needsSwitch(current, next);
 }
 
 function applyResolvedWorkspace(workspacePath: string, fromRoots: boolean): string {

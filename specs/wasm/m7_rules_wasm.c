@@ -5,5 +5,20 @@
 //    test name used in two specs is a compile error here. generate.sh refuses a header that is missing.
 // 2. Scratch buffers and their accessors. A buffer declared in a spec is dropped by --gc-sections, so
 //    the buffers live here and the host reads their address with an accessor that exports.txt names.
-//    bytes_rules takes and returns single bytes, so it needs none.
+//    The host writes text into a buffer, calls a rule with the buffer's address and the true length, and
+//    reads the answer. It reads memory.buffer again after every call.
 #include "bytes_rules.h"
+#include "path_tables.h"
+#include "path_rules.h"
+
+// path_rules: two path buffers (root and target, current and next, one name), the folded segment being
+// built and the joined folded text that a verdict reads.
+static uint8_t pr_buf_a[PR_PATH_MAX];
+static uint8_t pr_buf_b[PR_PATH_MAX];
+static uint8_t pr_buf_seg[PR_FOLDED_MAX];
+static uint8_t pr_buf_joined[PR_FOLDED_MAX];
+
+uint8_t *pr_addr_a(void) { return pr_buf_a; }
+uint8_t *pr_addr_b(void) { return pr_buf_b; }
+uint8_t *pr_addr_seg(void) { return pr_buf_seg; }
+uint8_t *pr_addr_joined(void) { return pr_buf_joined; }
