@@ -35,6 +35,9 @@ m7-mcp-oss/
 │   ├── tsi/                  ← Tech Safety Intelligence: YAML pattern packs in src/tsi/patterns
 │   ├── telemetry/            ← local telemetry; upload only when M7_TELEMETRY_ENDPOINT is set
 │   ├── arch-advisor/, knowledge-graph/, error-database/, style-guardian/, visualizer/, mesh/ ...
+│   └── rules/                ← loader and facades for the t27 rules (wasm.ts, marshal.ts, pathRules.ts, netRules.ts, policyRules.ts, meshRules.ts)
+├── specs/                    ← t27 rule specs, generated C headers, MOVED.tsv, MANIFEST.sha256; specs/generate.sh builds the wasm (needs T27C, ZIG, CC; the build and tests do not)
+├── wasm/m7_rules.wasm        ← the rules compiled from specs/, loaded by src/rules/wasm.ts
 ├── tests/                    ← node *.test.mjs (run: npm test); deepScan* = KNOWN_ISSUES acceptance (incl. no `require()` in src/), E2E, traceability
 ├── templates/                ← phase artifact templates
 ├── workflows/                ← workflow definitions
@@ -43,6 +46,7 @@ m7-mcp-oss/
 ├── docs/                     ← guides (TOOLS_REGISTRY.md = tool list, HIVE_USER_GUIDE.md, M7_WHY_FULL_CYCLE.md)
 ├── M7-GUIDE.md               ← operational guide for the agent (read at chat start)
 ├── scripts/run-tests.sh      ← test runner with per-file timeout, fails if tests write into the repo
+├── scripts/measure-t27-share.mjs ← share of logic points moved to t27; make-oracle.mjs and check-rules-manifest.mjs sit next to it
 └── scripts/deep-scan-mutants.mjs ← npm run test:mutants: reverts each KNOWN_ISSUES fix in dist/, expects its test to fail
 ```
 
@@ -60,6 +64,7 @@ m7-mcp-oss/
 | Cross-session learning | `src/cross-session/` | one instance per project, `<project>/.m7/cross-session/` |
 | Shutdown flush | `src/core/shutdown/flushOnExit.ts` | debounced stores register a contributor |
 | Package version | `src/core/utils/packageVersion.ts` | `PACKAGE_VERSION` for `serverInfo`, `m7://status`, telemetry |
+| t27 rules | `specs/*.t27`, `wasm/m7_rules.wasm`, `src/rules/` | path, network, write-policy and peer-text rules; fail closed; `docs/T27_BOUNDARY.md` says what moved and what did not |
 
 ## Known Issues
 

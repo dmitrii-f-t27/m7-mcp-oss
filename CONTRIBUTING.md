@@ -29,6 +29,8 @@ Tests import from `dist/`, so build first. A test that writes state binds its ow
 
 Test servers read the install-directory .env, so keep M7_TELEMETRY_ENDPOINT, M7_MESH_RELAY and M7_ALLOW_REMOTE_CLASSIFICATION out of it while running tests.
 
+Some rules are written in t27 (`specs/*.t27`) and run as WebAssembly (`wasm/m7_rules.wasm`, built from `specs/`; the TypeScript side is `src/rules/`). `npm run build` and `npm test` do not need a t27 tool. Only a change to a spec does: set `T27C` (t27c), `ZIG` (Zig) and `CC` (clang) to the versions in `specs/T27C_PIN` and run `specs/generate.sh`. It rewrites `specs/generated/`, `wasm/m7_rules.wasm`, `src/rules/generated/constants.ts` and `specs/MANIFEST.sha256`; commit all of them. `specs/generate.sh --check` regenerates into a temporary folder and compares, and changes nothing. `docs/T27_BOUNDARY.md` explains what moved and what stays in TypeScript.
+
 To run the server manually:
 
 ```bash
@@ -65,6 +67,8 @@ The authoritative list is in [CODING_STANDARDS.md](CODING_STANDARDS.md). Summary
 
 Tests are plain Node scripts: `tests/*.test.mjs`, run with `node --test`, no framework. `scripts/run-tests.sh` runs each file in isolation with a per-file timeout (default 120 s) and sets placeholder API keys.
 
+A rule that moves into a spec needs an oracle: the old TypeScript, made by `scripts/make-oracle.mjs`, and a test that compares it with the new rule (`tests/rules*.test.mjs`). The row in `specs/MOVED.tsv` names both, and `node scripts/measure-t27-share.mjs --check-moved` checks the row.
+
 A change that fixes a bug should include a test that fails before the change and passes after it. A change that adds a tool should include at least a schema validation test and a happy-path handler test.
 
 There is no coverage threshold enforced by tooling; the review checks that the changed code paths are exercised.
@@ -79,6 +83,7 @@ Update the documents that describe what you changed:
 |---|---|
 | new or removed tool | `docs/TOOLS_REGISTRY.md`, `src/core/registry/toolsRegistry.ts`, the tool count in `README.md` |
 | new module or system | `INDEX.md`, `MASTER_REFERENCE.md` |
+| a rule moved into a spec, or a spec changed | `specs/MOVED.tsv`, `docs/T27_BOUNDARY.md`, the share paragraph in `README.md` (`tests/measureShare.test.mjs` checks its numbers), `SECURITY.md` citations |
 | new convention | `CODING_STANDARDS.md` |
 | user-visible behaviour | `README.md`, `CHANGELOG.md` |
 

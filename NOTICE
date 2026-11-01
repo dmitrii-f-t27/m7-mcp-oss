@@ -31,10 +31,18 @@ Compared with commit 0ace0ab, this version:
   and rewrites the documentation for this fork.
 Details and what stays open: SECURITY.md and CHANGELOG.md.
 
-Each modified source or text file says so in its first lines. 63 files were
-modified and 25 added. These cannot carry a comment and are changed too:
+Each modified source or text file says so in its first lines. 66 files were
+modified and 74 added. These cannot carry a comment and are changed too:
   mcp.json
   package-lock.json
   package.json
   tests/fixtures/tools-base-3.22.2.json
   wasm/m7_rules.wasm
+
+Some rules in this version are written in t27 (specs/) and compiled to
+specs/generated/ and wasm/m7_rules.wasm. Tools used, with no change to them:
+  t27c 0.5.1, commit 579bc55aa, Trinity Ternary (t27),
+    Copyright 2024-2026 Dmitrii Vasilev (gHashTag), Apache License 2.0.
+  Zig 0.15.2 (MIT License). The WebAssembly file includes reactor startup code
+    from wasi-libc as shipped with Zig (Apache-2.0 with LLVM exceptions,
+    Apache-2.0 or MIT).

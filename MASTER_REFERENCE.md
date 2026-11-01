@@ -17,6 +17,7 @@ Cursor / any MCP client
 src/index.ts (M7MCPServer)
   ├─ registers 37 tools, each in its own try/catch (list: docs/TOOLS_REGISTRY.md)
   ├─ APIManager (Hive LLM clients)
+  ├─ src/rules/ ─► wasm/m7_rules.wasm (rules written in specs/*.t27; path, network, write-policy, peer text)
   └─ tool handlers
        ├─ analyze_task ─► TaskRouter ─► session + cycle
        ├─ cycle ────────► CycleOrchestrator (phases, reflection gates, carry-forward)
@@ -49,6 +50,8 @@ are drained on exit by the shutdown flush.
 | `config/m7-config.yaml` | feature flags, cycle thresholds |
 | `src/tsi/patterns/*.yaml` | tech-safety pattern packs |
 | `templates/` | phase artifact templates |
+| `specs/` | t27 rule specs, generated C headers, `MOVED.tsv`, `MANIFEST.sha256`, `generate.sh` |
+| `wasm/m7_rules.wasm` | the rules compiled from `specs/`; the server checks its SHA-256 at start and does not start without it |
 | `<project>/.m7/` | runtime state: memory, cycles, fog of war |
 | `<project>/.m7/orchestrator-sessions.json` | task sessions (`TaskOrchestrator`) |
 | `<project>/.m7/cross-session/` | insights, guidelines, heuristics, stats (`KnowledgeAccumulator`) |
@@ -68,3 +71,4 @@ are drained on exit by the shutdown flush.
 | `CHROMA_URL` | no | default `http://localhost:8000` |
 | `M7_TELEMETRY_ENDPOINT` | no | enables telemetry upload to your own collector |
 | `M7_DEBUG=true` | no | verbose logging to stderr |
+| `T27C`, `ZIG`, `CC` | no | only for `specs/generate.sh`; the build and `npm test` work without them (`tests/rulesWasm.test.mjs` also runs `generate.sh --check` when they are set) |

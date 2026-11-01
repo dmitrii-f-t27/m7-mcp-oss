@@ -6,9 +6,9 @@ This is an independent derivative of [M7 MCP](https://github.com/DukeDeSouth/m7-
 
 **Version 4.0.0.** There is no tagged release and no npm package: clone `main` and build from source (`npm run build`).
 
-**What changed:** unreachable code and unused dependencies were removed; project files are no longer overwritten; task text stays local unless you opt in; network services bind to loopback; file paths are checked. [SECURITY.md](SECURITY.md) lists what was checked and what stays open. [NOTICE](NOTICE) states the changes.
+**What changed:** unreachable code and unused dependencies were removed; project files are no longer overwritten; task text stays local unless you opt in; network services bind to loopback; file paths are checked; some rules run from t27 specs compiled to WebAssembly. [SECURITY.md](SECURITY.md) lists what was checked and what stays open. [NOTICE](NOTICE) states the changes.
 
-**t27 share: 0% in this version.** Nothing here is written in t27. A port is planned, not done.
+**t27 share: 0.59% of logic points, measured at 82718a0.** 112 of the 10,823 logic points in the TypeScript of `c41f8ce` moved to 6 t27 specs (53 functions, 1,462 lines), compiled to one WebAssembly file. The TypeScript now holds 10,759 points, 48 of them new, mostly in the wrappers around the specs. 0.59% is `(10,823 - 10,759) / 10,823`. A logic point is one branch, loop, regex literal or text transform, counted by `node scripts/measure-t27-share.mjs`. It counts code shapes, not importance, and its sampled error rate is in `docs/T27_BOUNDARY.md`. What moved: path, network, write-policy and peer-text rules. Everything else, 54,319 code lines of it, is still TypeScript. [docs/T27_BOUNDARY.md](docs/T27_BOUNDARY.md) lists what stays native and why.
 
 The rest of this README is based on the original. In the original author's words, M7 was developed between June 2025 and mid-2026 as a private tool, and the public code is a snapshot with the closed-distribution parts removed. Why the original author published it: [docs/WHY_OPEN_SOURCE.md](docs/WHY_OPEN_SOURCE.md). History: [CHANGELOG.md](CHANGELOG.md).
 
@@ -207,7 +207,7 @@ it.
 
 ```bash
 npm run build      # tsc → dist/
-npm test           # scripts/run-tests.sh: each tests/*.test.mjs with a timeout
+npm test           # scripts/run-tests.sh: tests/*.test.mjs, tests/reliability and the compiled safety tests (dist/core/safety/__tests__), each with a timeout
 M7_DEBUG=true node dist/index.js   # run the server by hand
 ```
 

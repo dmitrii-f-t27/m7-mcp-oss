@@ -25,7 +25,7 @@ import {
 } from '../scripts/measure-t27-share.mjs';
 
 // Read apart from the import list above: a missing export then fails one test and not the whole file.
-const { shareNumbers } = await import('../scripts/measure-t27-share.mjs');
+const { BASE_REV, resolveRev, shareNumbers } = await import('../scripts/measure-t27-share.mjs');
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'measure-t27-share.mjs');
@@ -600,5 +600,52 @@ describe('shareNumbers', () => {
   it('refuses a base revision that is not in the repository', () => {
     const { dir, rev } = movedRepo();
     assert.throws(() => shareNumbers({ repo: dir, rev, baseRev: 'deadbee' }), /deadbee/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The README paragraph: its numbers are the numbers of the script
+// ---------------------------------------------------------------------------
+
+describe('the README share paragraph', () => {
+  const readme = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const paragraph = readme.split('\n').find(line => line.startsWith('**t27 share:'));
+  const N = '(\\d[\\d,]*)';
+  const SHA = '([0-9a-f]{7,40})';
+  const PATTERN = new RegExp(
+    `^\\*\\*t27 share: (\\d+\\.\\d\\d)% of logic points, measured at ${SHA}\\.\\*\\* ${N} of the ${N} logic points in the TypeScript of \`${SHA}\` moved to ${N} t27 specs ` +
+    `\\(${N} functions, ${N} lines\\), compiled to one WebAssembly file\\. The TypeScript now holds ${N} points, ${N} of them new, mostly in the wrappers around the specs\\. ` +
+    `(\\d+\\.\\d\\d)% is \`\\(${N} - ${N}\\) / ${N}\`\\. A logic point is one branch, loop, regex literal or text transform, counted by \`node scripts/measure-t27-share\\.mjs\`\\. ` +
+    'It counts code shapes, not importance, and its sampled error rate is in `docs/T27_BOUNDARY\\.md`\\. ' +
+    `What moved: path, network, write-policy and peer-text rules\\. Everything else, ${N} code lines of it, is still TypeScript\\. ` +
+    '\\[docs/T27_BOUNDARY\\.md\\]\\(docs/T27_BOUNDARY\\.md\\) lists what stays native and why\\.$',
+  );
+  const num = s => Number(s.replace(/,/g, ''));
+
+  it('has the exact wording and every number equals shareNumbers at WORKTREE', T, () => {
+    assert.ok(paragraph, 'README.md has no paragraph that starts with "**t27 share:"');
+    const m = PATTERN.exec(paragraph);
+    assert.ok(m, `the paragraph does not have the wording of the rule:\n${paragraph}`);
+    const [, p, codeSha, moved, base, baseSha, specs, specFns, t27Lines, now, added, p2, b1, n1, b2, codeLines] = m;
+    const n = shareNumbers({ repo: ROOT, rev: 'WORKTREE' });
+    const truncated = (Math.floor(((n.base - n.now) * 10000) / n.base) / 100).toFixed(2);
+    assert.equal(p, truncated, 'p is (B - N) / B in percent, truncated to two decimals, never rounded up');
+    assert.equal(p2, truncated);
+    assert.equal(num(moved), n.moved);
+    assert.equal(num(base), n.base);
+    assert.equal(num(specs), n.specs);
+    assert.equal(num(specFns), n.specFns);
+    assert.equal(num(t27Lines), n.t27Lines);
+    assert.equal(num(now), n.now);
+    assert.equal(num(added), n.added);
+    assert.deepEqual([num(b1), num(n1), num(b2)], [n.base, n.now, n.base]);
+    assert.equal(num(codeLines), n.codeLines);
+    assert.equal(baseSha, BASE_REV, 'the base of the share is the revision the script measures against');
+    assert.equal(n.added, n.now - (n.base - n.moved));
+    assert.notEqual(resolveRev(ROOT, codeSha), null, `the commit ${codeSha} the share was measured at is not in this repository`);
+  });
+
+  it('claims nothing the share does not show', () => {
+    assert.doesNotMatch(readme, /100% t27|written entirely in t27|all logic/i);
   });
 });
