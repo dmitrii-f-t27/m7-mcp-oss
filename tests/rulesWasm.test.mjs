@@ -653,3 +653,26 @@ describe('specs/generate.sh', () => {
     assert.match(run.stdout, /generate\.sh --check: clean/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// scripts/deep-scan-mutants.mjs: spec mutants
+// ---------------------------------------------------------------------------
+
+describe('scripts/deep-scan-mutants.mjs', () => {
+  it('without ZIG the six spec mutants print SKIPPED, none counts as killed, and the run does not pass', T, () => {
+    const env = { ...process.env, ONLY: 'SPEC' };
+    delete env.ZIG;
+    const run = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'deep-scan-mutants.mjs')], { cwd: ROOT, env, encoding: 'utf8' });
+    const lines = run.stdout.split('\n');
+    const skipped = lines.filter(l => l.startsWith('SKIPPED '));
+    assert.deepEqual(
+      skipped.map(l => /^SKIPPED\s+(SPEC \S+):/.exec(l)?.[1]),
+      ['SPEC pr_pull_verdict', 'SPEC pr_is_inside', 'SPEC nr_origin_allowed', 'SPEC mr_is_control', 'SPEC po_write_action', 'SPEC pr_env_source'],
+      run.stdout,
+    );
+    assert.equal(lines.filter(l => /^(KILLED|SURVIVED|STALE|BASELINE|LOADER|NOOP) /.test(l)).length, 0, run.stdout);
+    assert.match(run.stdout, /^0\/6 mutants killed$/m);
+    assert.match(run.stdout, /^6 SKIPPED/m);
+    assert.equal(run.status, 1, 'a skipped mutant is not a pass');
+  });
+});
