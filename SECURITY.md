@@ -1,5 +1,44 @@
 # Security
 
+> This file describes this independent derivative, not the original project.
+
+## What stays open
+
+This list is built from the rows in "Status of known risks" whose status starts
+with OPEN. It is not a promise that nothing else exists.
+
+- **SEC-11 (LOW):** Hive has no global spend limit and no cancel.
+- **SEC-13 (LOW):** the mesh relay answers every request with
+  `Access-Control-Allow-Origin: *`.
+- **SEC-16 (LOW, by design):** an explicit `project_path` is accepted if the
+  directory exists, and it sticks for the session.
+- **SEC-17 (LOW):** `logger.ts` redacts nothing. It writes only when
+  `M7_DEBUG=true`.
+- **SEC-23 (LOW):** `create_structure` with a `task_id` such as `../../x` stays
+  inside the project but can put templates outside `docs/`.
+- **SEC-24 (LOW, by design):** `push-file` can send control paths such as
+  `.git/config`. Only `pull-file` refuses them.
+- **SEC-25 (LOW):** mesh error text is flattened to one line but not fenced.
+- **SEC-28 (LOW):** `GraphVisualizerService` keeps the knowledge graph of the
+  first project after the project changes.
+- **SEC-29 (LOW):** with both keys set, the server sends a model list request to
+  OpenAI and a 1-token `Hi` message to Anthropic for each of five model names
+  at start, using your keys. SEC-29 is unchanged in this version and has no
+  switch. The server also refuses to start without both keys.
+- **SEC-30 (LOW):** Hive sends up to three chunks of project memory with the
+  task to OpenAI and Anthropic, and no switch turns this off.
+- **SEC-19 remainder (LOW):** `style_guardian` `analyze` reads any directory the
+  process can read. It writes nothing into the project.
+
+Also open:
+
+- **Dependencies.** `npm audit` still lists 6 entries (1 low, 3 moderate, 2 high,
+  0 critical): `zod`, `openai`, `diff`, `minimatch`, `ts-morph` and
+  `@ts-morph/common`. See "Dependencies: `npm audit`".
+- **No run with real model keys was done.** Model behaviour and SEC-9 (whether
+  Opus models reject `temperature`) are not verified live. See "What is not
+  verified".
+
 ## What leaves the machine
 
 M7 runs on your machine and keeps its state in the project directory. This
@@ -190,8 +229,8 @@ This is a list of what was found, what was changed and what was checked. It is
 not a claim that M7 is secure. Section "What is not verified" below lists what
 no test here can show.
 
-`file:line` refers to the tree that contains this file, on the `clean-secure-t27`
-branch. Line numbers move when code changes. Search for the function name if a
+`file:line` refers to the tree that contains this file, on `main` of `dmitrii-f-t27/m7-mcp-oss`.
+Line numbers move when code changes. Search for the function name if a
 line is off.
 
 - FIXED: the code no longer does the thing. Each test file named in the last
@@ -199,7 +238,7 @@ line is off.
   on both versions, because they guard behaviour that must stay the same. Where
   a test cannot show the fix, the column says so.
 - CHANGED: the behaviour changed, and the effect on the outside is unverified.
-- OPEN: not fixed in this branch.
+- OPEN: not fixed in this version.
 
 | ID | Sev | Risk | Status | Where | Test |
 |---|---|---|---|---|---|

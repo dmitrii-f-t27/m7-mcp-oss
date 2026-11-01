@@ -1,5 +1,7 @@
 # Why M7 is open source, and not a patent or a startup
 
+> Written by DukeDeSouth, the original author of M7, about the original project. "I" means that author. It does not describe this fork.
+
 This document explains when M7 was built, what problem it was built for, which
 other paths were considered (a patent, outside investment), and why the code
 is being published under Apache-2.0 instead. It is not a user guide: there

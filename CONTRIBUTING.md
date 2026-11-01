@@ -1,6 +1,6 @@
 # Contributing to M7 MCP
 
-This repository is a public snapshot of a project that is developed privately (see [README.md](README.md)). Contributions are accepted; the maintainer reviews them without a fixed schedule. Before investing significant effort, open an issue describing the change, or pick an item from [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and reference its ID in the issue.
+This repository is an independent derivative of M7 MCP (see [README.md](README.md)). Contributions are accepted; no review schedule is promised. Before investing significant effort, open an issue describing the change.
 
 ## Prerequisites
 
@@ -20,6 +20,8 @@ npm test                    # scripts/run-tests.sh
 ```
 
 Tests import from `dist/`, so build first. A test that writes state binds its own temporary project (`bindProject` / `makeProject` in `tests/helpers/deepScanHarness.mjs`); `npm test` fails if a run leaves files in the repository.
+
+`npm test` points the model SDKs at a closed local port, so a test run does not reach the real APIs.
 
 To run the server manually:
 
@@ -85,7 +87,7 @@ Before opening a PR:
 
 The PR description should state: what the problem is, what the root cause is (for fixes), what the change does, how it was verified, and what else it could affect. Attach or link the cycle artifacts if they exist.
 
-Review is done by the maintainer. Merges are squash merges.
+Merges go to `main` of this fork as fast-forwards.
 
 ## Reporting issues
 

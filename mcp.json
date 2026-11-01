@@ -1,6 +1,6 @@
 {
   "name": "m7-mcp-server",
-  "version": "3.22.2",
+  "version": "4.0.0",
   "description": "M7 MCP Server - methodology-enforcing MCP server for AI coding agents",
   "main": "dist/index.js",
   "tools": [

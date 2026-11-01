@@ -5,6 +5,8 @@
 
 ## What is this
 
+Independent derivative of M7 MCP by DukeDeSouth; see README.md and NOTICE.
+
 M7 MCP Server — an MCP server that makes an AI coding agent work through a
 fixed 7-phase cycle (discovery → architecture → solution → impact → simulation
 → implementation → report) with reflection gates between phases, persistent

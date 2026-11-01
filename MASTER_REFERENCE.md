@@ -1,7 +1,7 @@
 # M7 MCP — Master Reference
 
 ## Identity
-- **Project**: M7 MCP Server (public snapshot)
+- **Project**: M7 MCP Server (independent derivative of the public M7 MCP snapshot; see README)
 - **Description**: MCP server that enforces a 7-phase development cycle on AI coding agents and keeps persistent project memory
 - **Stack**: TypeScript ESM (`"type": "module"`, no `require()`), Node 22, `@modelcontextprotocol/sdk`, optional ChromaDB
 - **Transport**: stdio

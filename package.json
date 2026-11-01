@@ -1,6 +1,8 @@
 {
   "name": "@m7/mcp-server",
-  "version": "3.22.2",
+  "version": "4.0.0",
+  "private": true,
+  "repository": "https://github.com/dmitrii-f-t27/m7-mcp-oss",
   "description": "M7 MCP Server - methodology-enforcing MCP server for AI coding agents: 7-phase cycle with reflection gates, persistent memory, fog of war, Hive multi-agent",
   "type": "module",
   "main": "dist/index.js",
@@ -33,6 +35,9 @@
     "ai-assistant"
   ],
   "author": "DukeDeSouth",
+  "contributors": [
+    "Dmitrii Fedorov (https://github.com/dmitrii-f-t27)"
+  ],
   "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",

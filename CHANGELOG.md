@@ -5,6 +5,8 @@ All notable changes to M7 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Entries below 4.0.0 describe the original project.
+
 ## Public snapshot - 2026-10
 
 This is the open-source snapshot of M7 MCP. Compared to the internal tree it
@@ -14,6 +16,12 @@ endpoint; set `M7_TELEMETRY_ENDPOINT` to use your own collector). Entries below
 that mention those pieces describe history, not what ships here.
 
 ## [Unreleased]
+
+## [4.0.0] - 2026-10-31
+
+Independent derivative of M7 MCP by DukeDeSouth, not an upstream release. Based on v3.22.2, which includes the review by @DiadkoShmek and the Windows fixes by @conradipui-glitch.
+
+Breaking: task text stays local unless `M7_ALLOW_REMOTE_CLASSIFICATION=true`; `analyze_task` sets up only empty directories; project files are not overwritten; `.env` is read only from the install directory; the visualizer and relay bind to loopback by default; `M7_PROJECT_PATH` beats the Cursor activity scan.
 
 ### Removed
 - Modules that nothing under `src/index.ts` reaches (32 source files, 8,800 lines) and the 3 test files that only covered them. `tools/list` still names the same 37 tools. The event-system half of `tests/phase3/test-doctor-events.mjs` went with its module.

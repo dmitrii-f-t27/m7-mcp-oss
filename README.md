@@ -1,20 +1,19 @@
-# M7 MCP
+# M7 MCP (independent derivative)
 
-**Current release:** [v3.22.2](https://github.com/DukeDeSouth/m7-mcp-oss/releases/tag/v3.22.2) — clone `main` or download the release archive. There is no npm package; build from source (`npm run build`).
+This is an independent derivative of [M7 MCP](https://github.com/DukeDeSouth/m7-mcp-oss), created by DukeDeSouth. It was forked at v3.22.2 (`0ace0ab`) under the Apache License 2.0. It is not the original author's project, and the original author does not endorse it. Apache-2.0 grants no trademark rights; the name M7 is used here to say where this code comes from. The name of this fork is not final.
+
+**Version 4.0.0.** There is no tagged release and no npm package: clone `main` and build from source (`npm run build`).
+
+**What changed:** unreachable code and unused dependencies were removed; project files are no longer overwritten; task text stays local unless you opt in; network services bind to loopback; file paths are checked. [SECURITY.md](SECURITY.md) lists what was checked and what stays open. [NOTICE](NOTICE) states the changes.
+
+**t27 share: 0% in this version.** Nothing here is written in t27. A port is planned, not done.
+
+The rest of this README is based on the original. In the original author's words, M7 was developed between June 2025 and mid-2026 as a private tool, and the public code is a snapshot with the closed-distribution parts removed. Why the original author published it: [docs/WHY_OPEN_SOURCE.md](docs/WHY_OPEN_SOURCE.md). History: [CHANGELOG.md](CHANGELOG.md).
 
 An MCP server that makes an AI coding agent work through a fixed seven-phase
 cycle instead of jumping straight to code. It was built for Cursor, but it
 speaks plain MCP over stdio and should work with any client that supports
 tools.
-
-This repository is a **snapshot, not the live tree**. I developed M7 between
-June 2025 and mid-2026 as a private tool used by me and my team. The version
-published here is the state of the repo as of July 2026 with the parts tied
-to that closed distribution (self-update client, license check, private-access
-gate) and one unfinished research module removed. Development continues privately; I may or may not sync more of
-it later. See [CHANGELOG.md](CHANGELOG.md) for what changed when, and
-[docs/WHY_OPEN_SOURCE.md](docs/WHY_OPEN_SOURCE.md) for why this is published
-as open source rather than pursued as a patent or a company.
 
 ## What it does
 
@@ -57,7 +56,7 @@ Documentation is split by reader. For the agent: [M7-GUIDE.md](M7-GUIDE.md)
 [Methodology/IDEAL_METHODOLOGY.md](Methodology/IDEAL_METHODOLOGY.md) (process
 specification). The index is [Methodology/METHODOLOGY_INDEX.md](Methodology/METHODOLOGY_INDEX.md).
 
-## Timeline
+## Timeline of the original project
 
 For context, since harness-engineering frameworks became a popular topic in
 2026:
@@ -96,7 +95,7 @@ classification picks no scan patterns, so the pattern scan of the project
 ## Install
 
 ```bash
-git clone https://github.com/DukeDeSouth/m7-mcp-oss.git m7-mcp
+git clone https://github.com/dmitrii-f-t27/m7-mcp-oss.git m7-mcp
 cd m7-mcp
 npm install
 npm run build
@@ -230,14 +229,15 @@ temporary project, and `npm test` fails if a run leaves files in the repository.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs are welcome; I cannot
-promise fast turnaround. If you want something concrete to work on,
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs are welcome in this fork;
+no response time is promised. If you want something concrete to work on,
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) lists confirmed defects with code
 references and a suggested order. The first response sprint (Stage 1 batch 1) is
 documented in [docs/COMMUNITY_SPRINT.md](docs/COMMUNITY_SPRINT.md).
 
 ## Thanks
 
+[DukeDeSouth](https://github.com/DukeDeSouth) created M7 MCP.
 [@DiadkoShmek](https://github.com/DiadkoShmek) wrote "Deep Scan M7" (October 28,
 2026), a source-level review of the 3.18.0 snapshot. Most of
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the fixes in v3.19.0–v3.22.2 come from
@@ -246,4 +246,6 @@ the Windows write and project-path bugs (#9).
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Dmitrii Fedorov ([@dmitrii-f-t27](https://github.com/dmitrii-f-t27))

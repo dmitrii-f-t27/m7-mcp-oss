@@ -1,5 +1,7 @@
 # Known issues and fix roadmap
 
+> This is the original project's list at the fork point. This fork tracks its own findings in SECURITY.md (SEC-n).
+
 This is the list of confirmed defects in m7-mcp-oss, each tied to a specific place in the code, with a suggested order for fixing them. It exists so that anyone who wants to contribute can pick something concrete without first re-discovering the problem.
 
 Line numbers refer to commit `72a7640` (the initial public release). After a fix lands, the numbers will drift; the function and symbol names next to them should still be enough to find the spot.
