@@ -9,6 +9,12 @@
 This list is built from the rows in "Status of known risks" whose status starts
 with OPEN. It is not a promise that nothing else exists.
 
+- **SEC-33 (MED):** `mcp_m7_safety_verify` can answer `PASS` on plain jailbreak
+  text, and an error inside its scan also answers `pass`. Five of its 96 tests
+  fail, and they were not part of `npm test`. Treat its answer as a hint, not as
+  protection. A fix is planned.
+- **SEC-34 (LOW):** one regular expression in the same scan is quadratic on a very
+  long word, and the tool has no size limit, so such a text can hold up the server.
 - **SEC-11 (LOW):** Hive has no global spend limit and no cancel.
 - **SEC-13 (LOW):** the mesh relay answers every request with
   `Access-Control-Allow-Origin: *`.
@@ -281,6 +287,8 @@ line is off.
 | SEC-30 | LOW | Hive sends up to three chunks of project memory (300 characters each) with the task to OpenAI and Anthropic. The chunk text is not marked or cleaned, and no switch turns this off | OPEN, LOW. Documented in "What leaves the machine". Not fixed here | `src/hive/tools/hiveCoordinator.ts:146`, `:191-203` | none |
 | SEC-31 | MED | `knowledge_hub`: (a) a document that is a symlink was read through, and its text went into `versions/` and the answer; (b) a document was written through a temporary file named `<document>.tmp`, so a link with that name was written through; (c) `document_id` was joined into a folder name unchecked, so `history` and `diff` read version files from another folder; (d) `version` was joined into `<version>.yaml` unchecked, so `rollback` restored a document from a file outside the hub; (e) prune deletes the versions it lists by the `version` field inside each version file, so a version file in a cloned repo could name a path, and the delete (`.yaml` files only) followed it | FIXED, with one behaviour change: a document that is a symlink is now refused for load, save, exists and delete (`INVALID_PATH`), also when it points inside the project. The temporary file has a random name and is created with `wx`. A document id or version name that leaves its folder throws `INVALID_PATH`. `registry.yaml` was traced: it is never read for version names. Limit: the check and the write are two steps, as for SEC-7 | `src/core/tools/knowledgeHub/core/DocumentManager.ts:213-233`; `src/core/tools/knowledgeHub/utils/fileUtils.ts:12-48`; `src/core/tools/knowledgeHub/utils/configUtils.ts:179-182`, `:189-205`; `src/core/tools/knowledgeHub/core/VersionManager.ts:154`, `:205-217`, `:335` | `tests/sec-knowledge-hub.test.mjs` |
 | SEC-32 | MED | Three project files were written with a plain write, so a symlink at the file, or at `docs`, was followed. (a) `PROJECT_SCHEMA.yaml`, rewritten by `mcp_m7_schema` `update` and `mcp_m7_contracts` `register`: a link to an outside YAML file that holds a `project:` key was overwritten, and `mcp_m7_schema` `view` showed its text. (b) `docs/REPENTANCE.md`, rewritten by `mcp_m7_repentance` `confess`: a `REPENTANCE.md` link overwrote its target, and a `docs` link created `REPENTANCE.md` in the folder it names. (c) `TASK_META.json` in the task folder: a link at the file, and a `docs` link above the folder, were written through | FIXED, MED (it was listed LOW). `writeRegularFile` resolves the folder above the file inside the project and refuses a file that is a symlink, a dangling one included. `loadSchema` does not read a symlink: it logs a `schema-load-error` and answers as if there were no schema. `confess` keeps the confession in `.m7/repentance.json`, skips the Markdown file and says so in the answer. `TASK_META.json` is created only when absent (`writeRegularFileIfAbsent`: same check, an existing file or link is kept and listed as kept). A refused `TASK_META.json` is logged and the task is still created. See "SEC-32 details" | `src/core/utils/safeWrite.ts:138-151`, `:153-166`; `src/schema/schemaSystem.ts:79-82`, `:140`; `src/core/tools/repentanceTool.ts:73-82`, `:128`, `:187`, `:203-205`; `src/core/task-graph/taskGraphManager.ts:172-173`, `:197` | `tests/sec-write-paths.test.mjs` |
+| SEC-33 | MED | `mcp_m7_safety_verify` can answer `PASS` on plain jailbreak text. At `c41f8ce`, 5 of the 96 tests in `src/core/safety/__tests__/` fail in each of 3 runs: Grandma exploit, Negation inversion, Anthropic authorization claim, Sudo/admin mode claim, Emergency/urgency framing. Those two test files were outside `npm test`, so no check published with 4.0.0 ran them. The scan also fails open: an error inside it answers `pass`. The tool is advisory: its answer is text for the caller, and nothing in the server acts on it | OPEN, MED; a fix is planned | `src/core/safety/pipeline.ts:5`, `:50`, `:130`; `src/core/safety/trapCatalog.ts:281-282`, `:297-300`; `src/core/tools/safetyTool.ts:52`; registered at `src/index.ts:483` | `src/core/safety/__tests__/stress.test.ts` (5 fail): `npm run build`, then `node --test --test-force-exit dist/core/safety/__tests__/safety.test.js dist/core/safety/__tests__/stress.test.js` |
+| SEC-34 | LOW | The regular expression `/(\w{20,}\s){3,}/` in the safety scan is quadratic on one long word. A probe of the same expression outside the server took about 4 s on 64 KB and over 20 s on 256 KB. The tool sets no size limit and the scan runs on the server's main thread, so such a text can hold up the server. Not run through the tool | OPEN, LOW | `src/core/safety/trapCatalog.ts:224`; `src/core/safety/trapDetector.ts:58`; `src/core/tools/safetyTool.ts:16` | none |
 
 ### Details and limits per item
 
@@ -590,6 +598,9 @@ secret exists.
   (`src/core/orchestrator/groundingGate.ts:204`, `:223`, `:283-287`). The
   original failure was not reproduced in the acceptance test itself, so that
   link is an inference.
+- `mcp_m7_safety_verify` matches English word lists with regular expressions. It
+  is a hint for the caller and not a boundary: reworded text can pass, and nothing
+  in the server acts on its answer (SEC-33).
 
 ## What is not verified
 
@@ -631,3 +642,5 @@ secret exists.
   (section above).
 - **Tool surface.** Tool names and input schemas were compared with the 3.22.2
   list. The behaviour behind each tool was not compared one by one.
+- **The safety tests were outside the published checks.** The checks for 4.0.0 did
+  not run `src/core/safety/__tests__/`. The result on `c41f8ce` is in SEC-33.
