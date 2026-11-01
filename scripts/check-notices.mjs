@@ -6,10 +6,10 @@
  * Run from anywhere: node scripts/check-notices.mjs
  *
  * Fails (exit code 1) when:
- * - a modified or added .ts, .mjs, .sh, .example, .yaml, .md or .gitleaksignore file
- *   lacks its notice line (the one scripts/mark-modified.mjs writes) in the first
- *   two lines;
- * - a modified or added JSON file is not listed in NOTICE;
+ * - a modified or added .ts, .mjs, .t27, .c, .h, .sh, .example, .yaml, .tsv, .txt, .sha256 or
+ *   .md file, or a .gitleaksignore, .gitattributes, T27C_PIN or ORDER file, lacks its notice
+ *   line (the one scripts/mark-modified.mjs writes) in the first two lines;
+ * - a modified or added JSON or .wasm file is not listed in NOTICE;
  * - a shebang is not on line 1;
  * - a changed file has a type with no notice rule;
  * - LICENSE differs from the fork point 0ace0ab.
@@ -40,16 +40,25 @@ function changedFiles() {
   return found;
 }
 
+const HASH_NAMES = new Set(['.gitleaksignore', '.gitattributes', 'T27C_PIN', 'ORDER']);
+
 function ruleFor(file) {
-  if (path.basename(file) === '.gitleaksignore') return 'hash';
+  if (HASH_NAMES.has(path.basename(file))) return 'hash';
   switch (path.extname(file)) {
     case '.ts':
-    case '.mjs': return 'slash';
+    case '.mjs':
+    case '.t27':
+    case '.c':
+    case '.h': return 'slash';
     case '.sh':
     case '.example':
-    case '.yaml': return 'hash';
+    case '.yaml':
+    case '.tsv':
+    case '.txt':
+    case '.sha256': return 'hash';
     case '.md': return 'md';
-    case '.json': return 'json';
+    case '.json':
+    case '.wasm': return 'json';
     default: return null;
   }
 }
@@ -66,7 +75,7 @@ for (const [file, code] of [...changedFiles()].sort(([a], [b]) => a.localeCompar
   if (rule === null) { failures.push(`${file}: no notice rule for this file type`); continue; }
   checked++;
   if (rule === 'json') {
-    if (noticeLines !== null && !noticeLines.includes(file)) failures.push(`${file}: JSON file is not listed in NOTICE`);
+    if (noticeLines !== null && !noticeLines.includes(file)) failures.push(`${file}: a file that cannot carry a comment (JSON, wasm) is not listed in NOTICE`);
     continue;
   }
   const head = readFileSync(path.join(ROOT, file), 'utf8').split('\n').slice(0, 3);

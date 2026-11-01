@@ -8,12 +8,13 @@
  *
  * - Source: git diff --no-renames --name-status 0ace0ab, taken against the working
  *   tree, plus untracked files that git does not ignore (counted as added).
- * - Modified .ts and .mjs: a "//" line. Modified .sh, .example, .yaml and
- *   .gitleaksignore: a "#" line. Modified .md: a "> " line and a blank line, so
- *   the notice shows when the page is rendered.
+ * - Modified .ts, .mjs, .t27, .c and .h: a "//" line. Modified .sh, .example, .yaml, .tsv,
+ *   .txt, .sha256 and the files .gitleaksignore, .gitattributes, T27C_PIN and ORDER: a "#"
+ *   line. Modified .md: a "> " line and a blank line, so the notice shows when the page is
+ *   rendered.
  * - Added files get the "Added by" text in the same form.
  * - The line goes on line 2 when line 1 is a shebang, otherwise on line 1.
- * - JSON files cannot carry a comment. They are listed in NOTICE instead, and
+ * - JSON and .wasm files cannot carry a comment. They are listed in NOTICE instead, and
  *   scripts/check-notices.mjs checks that.
  * - Deleted files are not touched. LICENSE and NOTICE are never marked.
  * - Running it twice changes nothing. Exit code 1 if a file has a type with no
@@ -43,16 +44,25 @@ function changedFiles() {
   return found;
 }
 
+const HASH_NAMES = new Set(['.gitleaksignore', '.gitattributes', 'T27C_PIN', 'ORDER']);
+
 function ruleFor(file) {
-  if (path.basename(file) === '.gitleaksignore') return 'hash';
+  if (HASH_NAMES.has(path.basename(file))) return 'hash';
   switch (path.extname(file)) {
     case '.ts':
-    case '.mjs': return 'slash';
+    case '.mjs':
+    case '.t27':
+    case '.c':
+    case '.h': return 'slash';
     case '.sh':
     case '.example':
-    case '.yaml': return 'hash';
+    case '.yaml':
+    case '.tsv':
+    case '.txt':
+    case '.sha256': return 'hash';
     case '.md': return 'md';
-    case '.json': return 'json';
+    case '.json':
+    case '.wasm': return 'json';
     default: return null;
   }
 }
@@ -87,7 +97,7 @@ for (const [file, code] of [...changedFiles()].sort(([a], [b]) => a.localeCompar
   marked++;
 }
 
-console.log(`mark-modified: ${marked} marked, ${already} already marked, ${listed} JSON files to list in NOTICE`);
+console.log(`mark-modified: ${marked} marked, ${already} already marked, ${listed} files to list in NOTICE (JSON, wasm)`);
 if (problems.length > 0) {
   for (const p of problems) console.error(`  ${p}`);
   process.exit(1);
